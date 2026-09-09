@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <style name="Theme.NSEWorker" parent="android:Theme.Material.Light.NoActionBar">
+        <item name="android:statusBarColor">#16A34A</item>
+        <item name="android:windowBackground">#F3F4F6</item>
+    </style>
+</resources>

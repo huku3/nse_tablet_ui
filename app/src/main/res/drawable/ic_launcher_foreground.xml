@@ -1,0 +1,21 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- 白抜きの "NSE" ロゴ（背景は緑） -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M22,39 h5 v30 h-5 z
+                          M35,39 h5 v30 h-5 z
+                          M27,39 L32,39 L40,69 L35,69 Z
+                          M45,39 h18 v5 h-18 z
+                          M45,39 h5 v17 h-5 z
+                          M45,51 h18 v5 h-18 z
+                          M58,53 h5 v16 h-5 z
+                          M45,64 h18 v5 h-18 z
+                          M68,39 h5 v30 h-5 z
+                          M68,39 h16 v5 h-16 z
+                          M68,51.5 h13 v5 h-13 z
+                          M68,64 h16 v5 h-16 z" />
+</vector>
