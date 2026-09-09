@@ -24,7 +24,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Logout
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.CheckCircle
-import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.QrCodeScanner
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.Card
@@ -73,6 +72,7 @@ import jp.co.nse.worker.data.WorkerRepository
 import jp.co.nse.worker.ui.components.HeaderUserLabel
 import jp.co.nse.worker.ui.components.MyPageButton
 import jp.co.nse.worker.ui.components.NotificationBell
+import jp.co.nse.worker.ui.components.ProcessAssignmentButton
 import jp.co.nse.worker.ui.components.OrderStatusBadge
 import jp.co.nse.worker.ui.components.ScrollToTopFab
 import jp.co.nse.worker.ui.theme.Emerald500
@@ -130,7 +130,6 @@ class TaskListViewModel(private val repo: WorkerRepository) : ViewModel() {
 @Composable
 fun TaskListScreen(
     onOpenTask: (processId: Int) -> Unit,
-    onOpenHistory: () -> Unit = {},
     onLogout: () -> Unit,
     completedProcessName: String? = null,
     onCompletedMessageShown: () -> Unit = {},
@@ -202,7 +201,7 @@ fun TaskListScreen(
             ExtendedFloatingActionButton(
                 onClick = { feedback(); onScan() },
                 containerColor = MaterialTheme.colorScheme.primary,
-                contentColor = Color.White,
+                contentColor = MaterialTheme.colorScheme.onPrimary,
                 icon = { Icon(Icons.Filled.QrCodeScanner, contentDescription = null) },
                 text = { Text("スキャン", fontWeight = FontWeight.Bold) },
             )
@@ -219,27 +218,25 @@ fun TaskListScreen(
                                 append(versionLabel)
                             },
                             style = MaterialTheme.typography.bodySmall,
-                            color = Color.White.copy(alpha = 0.85f),
+                            color = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.85f),
                             maxLines = 1,
                         )
                     }
                 },
                 colors = TopAppBarDefaults.centerAlignedTopAppBarColors(
                     containerColor = MaterialTheme.colorScheme.primary,
-                    titleContentColor = Color.White,
+                    titleContentColor = MaterialTheme.colorScheme.onPrimary,
                 ),
                 actions = {
                     HeaderUserLabel(userName)
                     NotificationBell()
                     MyPageButton()
-                    IconButton(onClick = { feedback(); onOpenHistory() }) {
-                        Icon(Icons.Filled.History, contentDescription = "作業実績", tint = Color.White)
-                    }
+                    ProcessAssignmentButton()
                     IconButton(onClick = { feedback(); vm.load() }) {
-                        Icon(Icons.Filled.Refresh, contentDescription = "更新", tint = Color.White)
+                        Icon(Icons.Filled.Refresh, contentDescription = "更新", tint = MaterialTheme.colorScheme.onPrimary)
                     }
                     IconButton(onClick = { feedback(); onLogout() }) {
-                        Icon(Icons.AutoMirrored.Filled.Logout, contentDescription = "ログアウト", tint = Color.White)
+                        Icon(Icons.AutoMirrored.Filled.Logout, contentDescription = "ログアウト", tint = MaterialTheme.colorScheme.onPrimary)
                     }
                 },
             )
@@ -813,8 +810,8 @@ private fun MiniPipeline(processes: List<ProcessBriefDto>, currentId: Int, curre
                 Spacer(Modifier.height(2.dp))
                 Text(
                     p.process_name,
-                    fontSize = 9.sp,
-                    lineHeight = 11.sp,
+                    fontSize = 11.sp,
+                    lineHeight = 13.sp,
                     color = if (isMine) MaterialTheme.colorScheme.primary else Color(0xFF9CA3AF),
                     fontWeight = if (isMine) FontWeight.Bold else FontWeight.Normal,
                     maxLines = 2,
@@ -823,11 +820,11 @@ private fun MiniPipeline(processes: List<ProcessBriefDto>, currentId: Int, curre
                 Spacer(Modifier.height(1.dp))
                 Text(
                     p.worker?.takeIf { it.isNotBlank() } ?: "未割当",
-                    fontSize = 8.sp,
-                    lineHeight = 10.sp,
+                    fontSize = 10.sp,
+                    lineHeight = 12.sp,
                     color = if (isSelfWorker) MaterialTheme.colorScheme.primary else Color(0xFFB0B7C0),
                     fontWeight = if (isSelfWorker) FontWeight.Bold else FontWeight.Normal,
-                    maxLines = 1,
+                    maxLines = 2,
                     textAlign = TextAlign.Center,
                 )
                 DateUtil.monthDayLabel(p.process_deadline)?.let {

@@ -13,7 +13,6 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import jp.co.nse.worker.util.rememberClickFeedback
 
 /**
@@ -32,7 +31,7 @@ fun ScrollToTopFab(visible: Boolean, onClick: () -> Unit, modifier: Modifier = M
         FloatingActionButton(
             onClick = { feedback(); onClick() },
             containerColor = MaterialTheme.colorScheme.primary,
-            contentColor = Color.White,
+            contentColor = MaterialTheme.colorScheme.onPrimary,
             shape = CircleShape,
         ) {
             Icon(Icons.Filled.KeyboardArrowUp, contentDescription = "先頭に戻る")

@@ -57,7 +57,6 @@ fun HomeScreen(
     onOpenTask: (processId: Int) -> Unit,
     onOpenOrder: (orderId: Int) -> Unit,
     onOpenCheckSheet: (orderId: Int) -> Unit,
-    onOpenHistory: () -> Unit,
     onLogout: () -> Unit,
     completedProcessName: String? = null,
     onCompletedMessageShown: () -> Unit = {},
@@ -80,7 +79,6 @@ fun HomeScreen(
         when (tab) {
             HomeTab.TASKS -> TaskListScreen(
                 onOpenTask = onOpenTask,
-                onOpenHistory = onOpenHistory,
                 onLogout = onLogout,
                 completedProcessName = completedProcessName,
                 onCompletedMessageShown = onCompletedMessageShown,

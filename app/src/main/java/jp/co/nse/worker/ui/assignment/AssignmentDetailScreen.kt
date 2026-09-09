@@ -36,6 +36,7 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
@@ -74,6 +75,7 @@ import jp.co.nse.worker.ui.components.HeaderTitle
 import jp.co.nse.worker.ui.components.HeaderUserLabel
 import jp.co.nse.worker.ui.components.MyPageButton
 import jp.co.nse.worker.ui.components.NotificationBell
+import jp.co.nse.worker.ui.components.ProcessAssignmentButton
 import jp.co.nse.worker.ui.components.ScrollToTopFab
 import jp.co.nse.worker.ui.components.rememberCurrentUserName
 import jp.co.nse.worker.ui.theme.Green600
@@ -115,6 +117,18 @@ class AssignmentDetailViewModel(
     var unassigningAll by mutableStateOf(false)
         private set
 
+    /** 直前の一括未割り当てで解除した (processId, 元の担当者名) の一覧。Undoの復元に使う */
+    var pendingUnassignSnapshot by mutableStateOf<List<Pair<Int, String>>?>(null)
+        private set
+
+    /** 一括未割り当てが成功した直後だけセットされる件数。Snackbar表示のワンショットトリガー */
+    var unassignUndoCount by mutableStateOf<Int?>(null)
+        private set
+
+    fun consumeUnassignUndoCount() {
+        unassignUndoCount = null
+    }
+
     /** 担当工程マスタを参照し、未割り当ての工程にデフォルト担当者を自動で割り振る */
     fun autoAssign() {
         viewModelScope.launch {
@@ -130,17 +144,42 @@ class AssignmentDetailViewModel(
         }
     }
 
-    /** 担当者割り当て済みの未完了工程を、まとめて未割り当てに戻す */
+    /**
+     * 担当者割り当て済みの未完了工程を、確認モーダルなしで即座にまとめて未割り当てに戻す（楽観的更新）。
+     * 解除前の割り当て（誰が担当していたか）を [pendingUnassignSnapshot] に保持しておき、
+     * Undoが押されたら1件ずつ元の担当者へ再割り当てして正確に復元する。
+     */
     fun unassignAll() {
+        val o = order ?: return
+        val snapshot = o.processes
+            .filter { it.status != WorkStatus.COMPLETED && !it.worker.isNullOrBlank() }
+            .map { it.id to it.worker!! }
+        if (snapshot.isEmpty()) return
+
         viewModelScope.launch {
             unassigningAll = true
             when (val result = repo.unassignAll(orderId)) {
                 is ApiResult.Success -> {
-                    message = result.data.message
+                    pendingUnassignSnapshot = snapshot
+                    unassignUndoCount = snapshot.size
                     reloadOrder()
                 }
                 is ApiResult.Failure -> message = result.message
             }
+            unassigningAll = false
+        }
+    }
+
+    /** 一括未割り当ての直前の状態（どの工程に誰が割り当てられていたか）を正確に復元する */
+    fun undoUnassignAll() {
+        val snapshot = pendingUnassignSnapshot ?: return
+        pendingUnassignSnapshot = null
+        viewModelScope.launch {
+            unassigningAll = true
+            snapshot.forEach { (processId, workerName) ->
+                repo.assignWorker(orderId, processId, workerName)
+            }
+            reloadOrder()
             unassigningAll = false
         }
     }
@@ -163,6 +202,9 @@ class AssignmentDetailViewModel(
 
     fun assign(processId: Int, workerName: String?) {
         val o = order ?: return
+        // 個別に手動で担当者を変更したら、一括未割り当てのUndo提示は対象外になるので消す
+        pendingUnassignSnapshot = null
+        unassignUndoCount = null
         viewModelScope.launch {
             saving = true
             val result = repo.assignWorker(o.id, processId, workerName)
@@ -239,7 +281,6 @@ fun AssignmentDetailScreen(
     var pickerProcess by remember { mutableStateOf<AssignProcessDto?>(null) }
     var deadlineProcess by remember { mutableStateOf<AssignProcessDto?>(null) }
     var showAutoAssignConfirm by remember { mutableStateOf(false) }
-    var showUnassignAllConfirm by remember { mutableStateOf(false) }
     val userName = rememberCurrentUserName()
 
     LaunchedEffect(Unit) { vm.load() }
@@ -247,6 +288,19 @@ fun AssignmentDetailScreen(
         vm.message?.let {
             snackbar.showSnackbar(it)
             vm.message = null
+        }
+    }
+    // 一括未割り当ての直後だけ、件数＋「元に戻す」アクション付きのSnackbarを表示する
+    LaunchedEffect(vm.unassignUndoCount) {
+        val count = vm.unassignUndoCount ?: return@LaunchedEffect
+        vm.consumeUnassignUndoCount()
+        val result = snackbar.showSnackbar(
+            message = "${count}件を未割り当てに戻しました",
+            actionLabel = "元に戻す",
+            duration = androidx.compose.material3.SnackbarDuration.Long,
+        )
+        if (result == androidx.compose.material3.SnackbarResult.ActionPerformed) {
+            vm.undoUnassignAll()
         }
     }
 
@@ -257,23 +311,24 @@ fun AssignmentDetailScreen(
                 title = { HeaderTitle("担当者の割り当て") },
                 navigationIcon = {
                     IconButton(onClick = { feedback(); onBack() }) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "戻る", tint = Color.White)
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "戻る", tint = MaterialTheme.colorScheme.onPrimary)
                     }
                 },
                 actions = {
                     HeaderUserLabel(userName)
                     NotificationBell()
                     MyPageButton()
+                    ProcessAssignmentButton()
                     IconButton(onClick = { feedback(); vm.load() }) {
-                        Icon(Icons.Filled.Refresh, contentDescription = "更新", tint = Color.White)
+                        Icon(Icons.Filled.Refresh, contentDescription = "更新", tint = MaterialTheme.colorScheme.onPrimary)
                     }
                     IconButton(onClick = { feedback(); onLogout() }) {
-                        Icon(Icons.AutoMirrored.Filled.Logout, contentDescription = "ログアウト", tint = Color.White)
+                        Icon(Icons.AutoMirrored.Filled.Logout, contentDescription = "ログアウト", tint = MaterialTheme.colorScheme.onPrimary)
                     }
                 },
                 colors = TopAppBarDefaults.centerAlignedTopAppBarColors(
                     containerColor = MaterialTheme.colorScheme.primary,
-                    titleContentColor = Color.White,
+                    titleContentColor = MaterialTheme.colorScheme.onPrimary,
                 ),
             )
         },
@@ -348,7 +403,7 @@ fun AssignmentDetailScreen(
                                         if (vm.autoAssigning) {
                                             CircularProgressIndicator(
                                                 Modifier.size(20.dp),
-                                                color = Color.White,
+                                                color = MaterialTheme.colorScheme.onPrimary,
                                                 strokeWidth = 2.dp,
                                             )
                                         } else {
@@ -362,17 +417,18 @@ fun AssignmentDetailScreen(
                                             )
                                         }
                                     }
-                                    Button(
-                                        onClick = { feedback(); showUnassignAllConfirm = true },
+                                    OutlinedButton(
+                                        onClick = { feedback(); vm.unassignAll() },
                                         enabled = hasAssigned && !vm.autoAssigning && !vm.unassigningAll,
-                                        colors = ButtonDefaults.buttonColors(containerColor = Red500),
+                                        colors = ButtonDefaults.outlinedButtonColors(contentColor = Red500),
+                                        border = BorderStroke(1.5.dp, Red500),
                                         shape = RoundedCornerShape(12.dp),
                                         modifier = Modifier.weight(1f).height(52.dp),
                                     ) {
                                         if (vm.unassigningAll) {
                                             CircularProgressIndicator(
                                                 Modifier.size(20.dp),
-                                                color = Color.White,
+                                                color = Red500,
                                                 strokeWidth = 2.dp,
                                             )
                                         } else {
@@ -465,15 +521,6 @@ fun AssignmentDetailScreen(
         )
     }
 
-    if (showUnassignAllConfirm) {
-        UnassignAllConfirmDialog(
-            onConfirm = {
-                showUnassignAllConfirm = false
-                vm.unassignAll()
-            },
-            onCancel = { showUnassignAllConfirm = false },
-        )
-    }
 }
 
 @Composable
@@ -494,29 +541,6 @@ private fun AutoAssignConfirmDialog(onConfirm: () -> Unit, onCancel: () -> Unit)
                 onClick = { feedback(); onConfirm() },
                 colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
             ) { Text("自動割り振りする") }
-        },
-        dismissButton = { TextButton(onClick = { feedback(); onCancel() }) { Text("キャンセル") } },
-    )
-}
-
-@Composable
-private fun UnassignAllConfirmDialog(onConfirm: () -> Unit, onCancel: () -> Unit) {
-    val feedback = rememberClickFeedback()
-    AlertDialog(
-        onDismissRequest = onCancel,
-        title = { Text("担当者を一括で未割り当てに戻しますか？", fontWeight = FontWeight.Bold) },
-        text = {
-            Text(
-                "この受注の未完了工程に割り当てられている担当者を、まとめて未割り当てに戻します。" +
-                    "完了済みの工程は対象外です。この操作は取り消せません。",
-                fontSize = 14.sp,
-            )
-        },
-        confirmButton = {
-            Button(
-                onClick = { feedback(); onConfirm() },
-                colors = ButtonDefaults.buttonColors(containerColor = Red500),
-            ) { Text("未割り当てに戻す") }
         },
         dismissButton = { TextButton(onClick = { feedback(); onCancel() }) { Text("キャンセル") } },
     )

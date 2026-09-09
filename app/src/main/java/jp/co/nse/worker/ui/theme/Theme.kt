@@ -35,26 +35,40 @@ val DefaultAccentHex = "#4338CA"
 val AccentPresets = listOf(
     AccentPreset("ブルー", "#4338CA", Indigo700),
     AccentPreset("グリーン", "#16A34A", Green600),
+    AccentPreset("レモンイエロー", "#FFF33F", Color(0xFFFFF33F)),
     AccentPreset("オレンジ", "#EA580C", Color(0xFFEA580C)),
     AccentPreset("レッド", "#DC2626", Color(0xFFDC2626)),
     AccentPreset("パープル", "#7C3AED", Color(0xFF7C3AED)),
     AccentPreset("ティール", "#0D9488", Color(0xFF0D9488)),
+    AccentPreset("アイボリーブラック", "#292421", Color(0xFF292421)),
 )
 
-private fun lightColorsFor(accent: Color) = lightColorScheme(
-    primary = accent,
-    onPrimary = Color.White,
-    primaryContainer = accent.copy(alpha = 0.12f),
-    onPrimaryContainer = accent,
-    secondary = Slate700,
-    secondaryContainer = accent.copy(alpha = 0.14f),
-    onSecondaryContainer = accent,
-    background = Gray100,
-    onBackground = Gray800,
-    surface = Color.White,
-    onSurface = Gray800,
-    error = Red500,
-)
+/**
+ * メイン色の上に乗せる文字・アイコンの色。レモンイエローのような明るい色では白文字が
+ * 読めなくなるため、背景の明度を見て白／濃いグレーのどちらか読みやすい方を選ぶ。
+ */
+fun inkFor(background: Color): Color {
+    val luminance = 0.299f * background.red + 0.587f * background.green + 0.114f * background.blue
+    return if (luminance > 0.6f) Gray800 else Color.White
+}
+
+private fun lightColorsFor(accent: Color): androidx.compose.material3.ColorScheme {
+    val ink = inkFor(accent)
+    return lightColorScheme(
+        primary = accent,
+        onPrimary = ink,
+        primaryContainer = accent.copy(alpha = 0.12f),
+        onPrimaryContainer = accent,
+        secondary = Slate700,
+        secondaryContainer = accent.copy(alpha = 0.14f),
+        onSecondaryContainer = accent,
+        background = Gray100,
+        onBackground = Gray800,
+        surface = Color.White,
+        onSurface = Gray800,
+        error = Red500,
+    )
+}
 
 /** [accentColor] は現在ログイン中のアカウントのマイページで選んだメイン色（未選択時は出荷カレンダーと同じブルー） */
 @Composable

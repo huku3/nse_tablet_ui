@@ -57,6 +57,7 @@ import jp.co.nse.worker.ui.components.HeaderTitle
 import jp.co.nse.worker.ui.components.HeaderUserLabel
 import jp.co.nse.worker.ui.components.MyPageButton
 import jp.co.nse.worker.ui.components.NotificationBell
+import jp.co.nse.worker.ui.components.ProcessAssignmentButton
 import jp.co.nse.worker.ui.components.ScrollToTopFab
 import jp.co.nse.worker.ui.components.rememberCurrentUserName
 import jp.co.nse.worker.ui.theme.Amber500
@@ -175,17 +176,18 @@ fun AssignmentListScreen(
                 title = { HeaderTitle("割り当て") },
                 colors = TopAppBarDefaults.centerAlignedTopAppBarColors(
                     containerColor = MaterialTheme.colorScheme.primary,
-                    titleContentColor = Color.White,
+                    titleContentColor = MaterialTheme.colorScheme.onPrimary,
                 ),
                 actions = {
                     HeaderUserLabel(userName)
                     NotificationBell()
                     MyPageButton()
+                    ProcessAssignmentButton()
                     IconButton(onClick = { feedback(); vm.load() }) {
-                        Icon(Icons.Filled.Refresh, contentDescription = "更新", tint = Color.White)
+                        Icon(Icons.Filled.Refresh, contentDescription = "更新", tint = MaterialTheme.colorScheme.onPrimary)
                     }
                     IconButton(onClick = { feedback(); onLogout() }) {
-                        Icon(Icons.AutoMirrored.Filled.Logout, contentDescription = "ログアウト", tint = Color.White)
+                        Icon(Icons.AutoMirrored.Filled.Logout, contentDescription = "ログアウト", tint = MaterialTheme.colorScheme.onPrimary)
                     }
                 },
             )
@@ -220,45 +222,49 @@ fun AssignmentListScreen(
                     val listState = androidx.compose.foundation.lazy.rememberLazyListState()
                     val scope = androidx.compose.runtime.rememberCoroutineScope()
                     val filteredOrders = vm.filteredOrders
-                    LazyColumn(
-                        state = listState,
-                        modifier = Modifier.fillMaxSize(),
-                        contentPadding = androidx.compose.foundation.layout.PaddingValues(
-                            start = 16.dp, top = 16.dp, end = 16.dp, bottom = 96.dp,
-                        ),
-                        verticalArrangement = Arrangement.spacedBy(12.dp),
-                    ) {
-                        item(key = "dashboard") {
-                            DashboardRow(
-                                totalCount = vm.orders.size,
-                                urgentCount = vm.urgentCount,
-                                todayCount = vm.todayCount,
-                                unassignedCount = vm.unassignedCount,
-                                filter = vm.filter,
-                                onSelect = { vm.toggleFilter(it) },
+                    Column(Modifier.fillMaxSize()) {
+                        // スクロールしても絞り込み中のダッシュボードが隠れないよう、リストの外（TopAppBar直下）に固定表示する
+                        DashboardRow(
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+                            totalCount = vm.orders.size,
+                            urgentCount = vm.urgentCount,
+                            todayCount = vm.todayCount,
+                            unassignedCount = vm.unassignedCount,
+                            filter = vm.filter,
+                            onSelect = { vm.toggleFilter(it) },
+                        )
+                        Box(Modifier.weight(1f).fillMaxWidth()) {
+                            LazyColumn(
+                                state = listState,
+                                modifier = Modifier.fillMaxSize(),
+                                contentPadding = androidx.compose.foundation.layout.PaddingValues(
+                                    start = 16.dp, top = 4.dp, end = 16.dp, bottom = 96.dp,
+                                ),
+                                verticalArrangement = Arrangement.spacedBy(12.dp),
+                            ) {
+                                if (filteredOrders.isEmpty()) {
+                                    item(key = "filtered-empty") {
+                                        Text(
+                                            "条件に一致する受注がありません",
+                                            modifier = Modifier.fillMaxWidth().padding(vertical = 32.dp),
+                                            textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                                            fontWeight = FontWeight.Bold,
+                                            color = Color(0xFF9CA3AF),
+                                        )
+                                    }
+                                } else {
+                                    items(filteredOrders, key = { it.id }) { order ->
+                                        OrderAssignCard(order = order, onClick = { onOpenOrder(order.id) })
+                                    }
+                                }
+                            }
+                            ScrollToTopFab(
+                                visible = listState.firstVisibleItemIndex > 0,
+                                onClick = { scope.launch { listState.animateScrollToItem(0) } },
+                                modifier = Modifier.align(Alignment.BottomEnd).padding(20.dp),
                             )
                         }
-                        if (filteredOrders.isEmpty()) {
-                            item(key = "filtered-empty") {
-                                Text(
-                                    "条件に一致する受注がありません",
-                                    modifier = Modifier.fillMaxWidth().padding(vertical = 32.dp),
-                                    textAlign = androidx.compose.ui.text.style.TextAlign.Center,
-                                    fontWeight = FontWeight.Bold,
-                                    color = Color(0xFF9CA3AF),
-                                )
-                            }
-                        } else {
-                            items(filteredOrders, key = { it.id }) { order ->
-                                OrderAssignCard(order = order, onClick = { onOpenOrder(order.id) })
-                            }
-                        }
                     }
-                    ScrollToTopFab(
-                        visible = listState.firstVisibleItemIndex > 0,
-                        onClick = { scope.launch { listState.animateScrollToItem(0) } },
-                        modifier = Modifier.align(Alignment.BottomEnd).padding(20.dp),
-                    )
                 }
             }
         }
@@ -271,6 +277,7 @@ fun AssignmentListScreen(
  */
 @Composable
 private fun DashboardRow(
+    modifier: Modifier = Modifier,
     totalCount: Int,
     urgentCount: Int,
     todayCount: Int,
@@ -279,7 +286,7 @@ private fun DashboardRow(
     onSelect: (DashboardFilter) -> Unit,
 ) {
     Row(
-        modifier = Modifier.fillMaxWidth().padding(bottom = 4.dp),
+        modifier = modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.spacedBy(10.dp),
     ) {
         DashboardCard(
@@ -289,6 +296,7 @@ private fun DashboardRow(
             valueColor = Color(0xFF1F2937),
             selected = filter == DashboardFilter.ALL,
             enabled = true,
+            alwaysEnabled = true,
             onClick = { onSelect(DashboardFilter.ALL) },
         )
         DashboardCard(
@@ -329,11 +337,12 @@ private fun DashboardCard(
     valueColor: Color,
     selected: Boolean,
     enabled: Boolean,
+    alwaysEnabled: Boolean = false,
     onClick: () -> Unit,
 ) {
     val feedback = rememberClickFeedback()
     Card(
-        onClick = { if (enabled || label == "受注件数") { feedback(); onClick() } },
+        onClick = { if (enabled || alwaysEnabled) { feedback(); onClick() } },
         modifier = modifier,
         colors = CardDefaults.cardColors(containerColor = Color.White),
         elevation = CardDefaults.cardElevation(defaultElevation = if (selected) 4.dp else 1.dp),

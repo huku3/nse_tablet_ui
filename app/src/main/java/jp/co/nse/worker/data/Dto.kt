@@ -455,3 +455,36 @@ data class CheckSheetProcessDto(
     val notes: String? = null,
     val defect_count: Int? = null,
 )
+
+// ===== 担当工程マスタ =====
+
+@Serializable
+data class ProcessMasterLiteDto(
+    val id: Int,
+    val name: String,
+)
+
+@Serializable
+data class WorkerProcessAssignmentDto(
+    val user_id: Int,
+    val process_master_id: Int,
+    val is_default: Boolean = false,
+)
+
+@Serializable
+data class ProcessAssignmentsResponse(
+    val workers: List<WorkerDto> = emptyList(),
+    val process_masters: List<ProcessMasterLiteDto> = emptyList(),
+    val assignments: List<WorkerProcessAssignmentDto> = emptyList(),
+)
+
+@Serializable
+data class ProcessAssignmentRequest(
+    val user_id: Int,
+    val process_master_id: Int,
+)
+
+@Serializable
+data class ToggleProcessAssignmentResponse(
+    val assigned: Boolean,
+)

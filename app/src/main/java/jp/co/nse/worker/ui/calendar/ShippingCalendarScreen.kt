@@ -76,11 +76,13 @@ import jp.co.nse.worker.ui.components.HeaderTitle
 import jp.co.nse.worker.ui.components.HeaderUserLabel
 import jp.co.nse.worker.ui.components.MyPageButton
 import jp.co.nse.worker.ui.components.NotificationBell
+import jp.co.nse.worker.ui.components.ProcessAssignmentButton
 import jp.co.nse.worker.ui.components.rememberCurrentUserName
 import jp.co.nse.worker.ui.scan.startBarcodeScan
 import jp.co.nse.worker.ui.theme.Gray500
 import jp.co.nse.worker.ui.theme.Green600
 import jp.co.nse.worker.ui.theme.Indigo50
+import jp.co.nse.worker.ui.theme.inkFor
 import jp.co.nse.worker.util.DateUtil
 import jp.co.nse.worker.util.rememberClickFeedback
 import kotlinx.coroutines.launch
@@ -313,7 +315,7 @@ fun ShippingCalendarScreen(
             ExtendedFloatingActionButton(
                 onClick = { feedback(); onScan() },
                 containerColor = MaterialTheme.colorScheme.primary,
-                contentColor = Color.White,
+                contentColor = MaterialTheme.colorScheme.onPrimary,
                 icon = { Icon(Icons.Filled.QrCodeScanner, contentDescription = null) },
                 text = { Text("スキャンして出荷完了", fontWeight = FontWeight.Bold) },
             )
@@ -325,16 +327,17 @@ fun ShippingCalendarScreen(
                     HeaderUserLabel(userName)
                     NotificationBell()
                     MyPageButton()
+                    ProcessAssignmentButton()
                     IconButton(onClick = { feedback(); vm.load() }) {
-                        Icon(Icons.Filled.Refresh, contentDescription = "更新", tint = Color.White)
+                        Icon(Icons.Filled.Refresh, contentDescription = "更新", tint = MaterialTheme.colorScheme.onPrimary)
                     }
                     IconButton(onClick = { feedback(); onLogout() }) {
-                        Icon(Icons.AutoMirrored.Filled.Logout, contentDescription = "ログアウト", tint = Color.White)
+                        Icon(Icons.AutoMirrored.Filled.Logout, contentDescription = "ログアウト", tint = MaterialTheme.colorScheme.onPrimary)
                     }
                 },
                 colors = TopAppBarDefaults.centerAlignedTopAppBarColors(
                     containerColor = MaterialTheme.colorScheme.primary,
-                    titleContentColor = Color.White,
+                    titleContentColor = MaterialTheme.colorScheme.onPrimary,
                 ),
             )
         },
@@ -555,7 +558,7 @@ private fun CalendarDayCell(
         isSelected -> Indigo50
         else -> Color.White
     }
-    val dateColor = if (isToday) Color.White else MaterialTheme.colorScheme.onSurface
+    val dateColor = if (isToday) inkFor(MaterialTheme.colorScheme.primary) else MaterialTheme.colorScheme.onSurface
     val borderColor = when {
         isToday -> null
         isSelected -> MaterialTheme.colorScheme.primary
@@ -597,7 +600,7 @@ private fun CalendarDayCell(
 @Composable
 private fun CountBadge(count: Int, onFilledCell: Boolean) {
     val bg = if (onFilledCell) Color.White.copy(alpha = 0.22f) else MaterialTheme.colorScheme.primary
-    val fg = Color.White
+    val fg = inkFor(MaterialTheme.colorScheme.primary)
     Box(
         modifier = Modifier
             .clip(RoundedCornerShape(50))
@@ -670,7 +673,7 @@ private fun SelectedDayList(
             shape = RoundedCornerShape(Space2),
         ) {
             if (bulkBusy) {
-                CircularProgressIndicator(modifier = Modifier.size(20.dp), color = Color.White, strokeWidth = 2.dp)
+                CircularProgressIndicator(modifier = Modifier.size(20.dp), color = MaterialTheme.colorScheme.onPrimary, strokeWidth = 2.dp)
             } else {
                 Text("本日の出荷をすべて完了にする", fontWeight = FontWeight.Bold, fontSize = 15.sp)
             }

@@ -28,6 +28,7 @@ class SettingsStore(private val context: Context) {
         val USER_ROLE = stringPreferencesKey("user_role")
         val CAN_ASSIGN = booleanPreferencesKey("can_assign")
         val CAN_VIEW_SHIPPING = booleanPreferencesKey("can_view_shipping")
+        val CAN_MANAGE_PROCESS_ASSIGNMENTS = booleanPreferencesKey("can_manage_process_assignments")
         val ACCENT_COLOR = stringPreferencesKey("accent_color_hex")
     }
 
@@ -46,6 +47,8 @@ class SettingsStore(private val context: Context) {
     val userRoleFlow: Flow<String?> = context.dataStore.data.map { it[Keys.USER_ROLE] }
     val canAssignFlow: Flow<Boolean> = context.dataStore.data.map { it[Keys.CAN_ASSIGN] ?: false }
     val canViewShippingFlow: Flow<Boolean> = context.dataStore.data.map { it[Keys.CAN_VIEW_SHIPPING] ?: false }
+    val canManageProcessAssignmentsFlow: Flow<Boolean> =
+        context.dataStore.data.map { it[Keys.CAN_MANAGE_PROCESS_ASSIGNMENTS] ?: false }
 
     /** 現在ログイン中アカウントのマイページ設定色（"#RRGGBB"）。未設定時はアプリの既定色 */
     val accentColorFlow: Flow<String> =
@@ -57,6 +60,7 @@ class SettingsStore(private val context: Context) {
         userRole: String?,
         canAssign: Boolean,
         canViewShipping: Boolean,
+        canManageProcessAssignments: Boolean,
         accentColorHex: String?,
     ) {
         cachedToken = token
@@ -66,6 +70,7 @@ class SettingsStore(private val context: Context) {
             if (userRole != null) it[Keys.USER_ROLE] = userRole else it.remove(Keys.USER_ROLE)
             it[Keys.CAN_ASSIGN] = canAssign
             it[Keys.CAN_VIEW_SHIPPING] = canViewShipping
+            it[Keys.CAN_MANAGE_PROCESS_ASSIGNMENTS] = canManageProcessAssignments
             it[Keys.ACCENT_COLOR] = accentColorHex ?: DEFAULT_ACCENT_HEX
         }
     }
@@ -83,6 +88,7 @@ class SettingsStore(private val context: Context) {
             it.remove(Keys.USER_ROLE)
             it.remove(Keys.CAN_ASSIGN)
             it.remove(Keys.CAN_VIEW_SHIPPING)
+            it.remove(Keys.CAN_MANAGE_PROCESS_ASSIGNMENTS)
             it.remove(Keys.ACCENT_COLOR)
         }
     }

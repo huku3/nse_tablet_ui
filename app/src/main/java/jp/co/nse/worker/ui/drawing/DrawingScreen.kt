@@ -55,6 +55,7 @@ import jp.co.nse.worker.data.ApiResult
 import jp.co.nse.worker.ui.components.HeaderUserLabel
 import jp.co.nse.worker.ui.components.MyPageButton
 import jp.co.nse.worker.ui.components.NotificationBell
+import jp.co.nse.worker.ui.components.ProcessAssignmentButton
 import jp.co.nse.worker.ui.components.rememberCurrentUserName
 import jp.co.nse.worker.util.DateUtil
 import jp.co.nse.worker.util.rememberClickFeedback
@@ -115,23 +116,24 @@ fun DrawingScreen(
                 },
                 navigationIcon = {
                     IconButton(onClick = { feedback(); onBack() }) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "戻る", tint = Color.White)
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "戻る", tint = MaterialTheme.colorScheme.onPrimary)
                     }
                 },
                 actions = {
                     HeaderUserLabel(userName)
                     NotificationBell()
                     MyPageButton()
+                    ProcessAssignmentButton()
                     IconButton(onClick = { feedback(); reloadKey++ }) {
-                        Icon(Icons.Filled.Refresh, contentDescription = "更新", tint = Color.White)
+                        Icon(Icons.Filled.Refresh, contentDescription = "更新", tint = MaterialTheme.colorScheme.onPrimary)
                     }
                     IconButton(onClick = { feedback(); onLogout() }) {
-                        Icon(Icons.AutoMirrored.Filled.Logout, contentDescription = "ログアウト", tint = Color.White)
+                        Icon(Icons.AutoMirrored.Filled.Logout, contentDescription = "ログアウト", tint = MaterialTheme.colorScheme.onPrimary)
                     }
                 },
                 colors = TopAppBarDefaults.centerAlignedTopAppBarColors(
                     containerColor = MaterialTheme.colorScheme.primary,
-                    titleContentColor = Color.White,
+                    titleContentColor = MaterialTheme.colorScheme.onPrimary,
                 ),
             )
         },
@@ -176,14 +178,14 @@ private fun DrawingHeaderTitle(title: String, orderId: Int, poNumber: String?) {
                 },
                 fontSize = 12.sp,
                 fontWeight = FontWeight.SemiBold,
-                color = Color.White,
+                color = MaterialTheme.colorScheme.onPrimary,
                 maxLines = 1,
             )
         }
         Text(
             DateUtil.shortLabel(LocalDate.now()),
             fontSize = 11.sp,
-            color = Color.White.copy(alpha = 0.85f),
+            color = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.85f),
         )
     }
 }

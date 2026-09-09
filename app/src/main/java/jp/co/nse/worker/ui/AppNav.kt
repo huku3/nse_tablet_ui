@@ -14,8 +14,8 @@ import jp.co.nse.worker.appContainer
 import jp.co.nse.worker.ui.assignment.AssignmentDetailScreen
 import jp.co.nse.worker.ui.checksheet.CheckSheetScreen
 import jp.co.nse.worker.ui.drawing.DrawingScreen
-import jp.co.nse.worker.ui.history.HistoryScreen
 import jp.co.nse.worker.ui.login.LoginScreen
+import jp.co.nse.worker.ui.processassignment.ProcessAssignmentScreen
 import jp.co.nse.worker.ui.settings.SettingsScreen
 import jp.co.nse.worker.ui.splash.SplashScreen
 import jp.co.nse.worker.ui.taskdetail.TaskDetailScreen
@@ -30,7 +30,7 @@ object Routes {
     const val DETAIL = "detail/{processId}"
     const val ASSIGN_DETAIL = "assign/{orderId}"
     const val SETTINGS = "settings"
-    const val HISTORY = "history"
+    const val PROCESS_ASSIGNMENTS = "process-assignments"
     const val DRAWING = "drawing/{processId}?title={title}&orderId={orderId}&poNumber={poNumber}"
     const val CHECKSHEET = "checksheet/{orderId}"
 
@@ -54,6 +54,8 @@ fun AppNav() {
     container.openTask = { processId -> navController.navigate(Routes.detail(processId)) }
     // どの画面のヘッダーからでもマイページへ遷移できるようにする
     container.openMyPage = { navController.navigate(Routes.SETTINGS) }
+    // 権限があるアカウントは、どの画面のヘッダーからでも担当工程マスタへ遷移できるようにする
+    container.openProcessAssignments = { navController.navigate(Routes.PROCESS_ASSIGNMENTS) }
 
     val logout: () -> Unit = {
         container.notificationCenter.stopPolling()
@@ -114,7 +116,6 @@ fun AppNav() {
                 onOpenTask = { processId -> navController.navigate(Routes.detail(processId)) },
                 onOpenOrder = { orderId -> navController.navigate(Routes.assignDetail(orderId)) },
                 onOpenCheckSheet = { orderId -> navController.navigate(Routes.checksheet(orderId)) },
-                onOpenHistory = { navController.navigate(Routes.HISTORY) },
                 onLogout = logout,
                 completedProcessName = completedProcessName,
                 onCompletedMessageShown = { backStackEntry.savedStateHandle["completed_process_name"] = null },
@@ -189,16 +190,20 @@ fun AppNav() {
             )
         }
 
-        composable(Routes.HISTORY) {
-            HistoryScreen(
+        composable(Routes.SETTINGS) {
+            SettingsScreen(
                 onBack = { navController.popBackStack() },
                 onOpenTask = { processId -> navController.navigate(Routes.detail(processId)) },
+                onOpenProcessAssignments = { navController.navigate(Routes.PROCESS_ASSIGNMENTS) },
                 onLogout = logout,
             )
         }
 
-        composable(Routes.SETTINGS) {
-            SettingsScreen(onBack = { navController.popBackStack() }, onLogout = logout)
+        composable(Routes.PROCESS_ASSIGNMENTS) {
+            ProcessAssignmentScreen(
+                onBack = { navController.popBackStack() },
+                onLogout = logout,
+            )
         }
     }
 }

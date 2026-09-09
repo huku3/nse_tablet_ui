@@ -90,6 +90,20 @@ interface ApiService {
     @GET("workers")
     suspend fun workers(): WorkersResponse
 
+    // ===== 担当工程マスタ（管理者向け） =====
+
+    @GET("worker-process-assignments")
+    suspend fun processAssignments(): ProcessAssignmentsResponse
+
+    @POST("worker-process-assignments/toggle")
+    suspend fun toggleProcessAssignment(@Body body: ProcessAssignmentRequest): ToggleProcessAssignmentResponse
+
+    @POST("worker-process-assignments/set-default")
+    suspend fun setDefaultProcessAssignment(@Body body: ProcessAssignmentRequest): Response<ActionResponse>
+
+    @POST("worker-process-assignments/unset-default")
+    suspend fun unsetDefaultProcessAssignment(@Body body: ProcessAssignmentRequest): Response<ActionResponse>
+
     @GET("orders")
     suspend fun orders(@Query("per_page") perPage: Int = 100): OrdersPage
 

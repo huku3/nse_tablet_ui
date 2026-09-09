@@ -80,6 +80,7 @@ import jp.co.nse.worker.ui.components.HeaderTitle
 import jp.co.nse.worker.ui.components.HeaderUserLabel
 import jp.co.nse.worker.ui.components.MyPageButton
 import jp.co.nse.worker.ui.components.NotificationBell
+import jp.co.nse.worker.ui.components.ProcessAssignmentButton
 import jp.co.nse.worker.ui.components.OrderStatusBadge
 import jp.co.nse.worker.ui.components.rememberCurrentUserName
 import jp.co.nse.worker.ui.components.ScrollToTopFab
@@ -89,6 +90,7 @@ import jp.co.nse.worker.ui.theme.Amber500
 import jp.co.nse.worker.ui.theme.Emerald500
 import jp.co.nse.worker.ui.theme.Orange400
 import jp.co.nse.worker.ui.theme.Red500
+import jp.co.nse.worker.ui.theme.inkFor
 import jp.co.nse.worker.util.DateUtil
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -136,23 +138,24 @@ fun TaskDetailScreen(
                 title = { HeaderTitle("作業詳細") },
                 navigationIcon = {
                     IconButton(onClick = { feedback(); onBack() }) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "戻る", tint = Color.White)
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "戻る", tint = MaterialTheme.colorScheme.onPrimary)
                     }
                 },
                 actions = {
                     HeaderUserLabel(userName)
                     NotificationBell()
                     MyPageButton()
+                    ProcessAssignmentButton()
                     IconButton(onClick = { feedback(); vm.load() }) {
-                        Icon(Icons.Filled.Refresh, contentDescription = "更新", tint = Color.White)
+                        Icon(Icons.Filled.Refresh, contentDescription = "更新", tint = MaterialTheme.colorScheme.onPrimary)
                     }
                     IconButton(onClick = { feedback(); onLogout() }) {
-                        Icon(Icons.AutoMirrored.Filled.Logout, contentDescription = "ログアウト", tint = Color.White)
+                        Icon(Icons.AutoMirrored.Filled.Logout, contentDescription = "ログアウト", tint = MaterialTheme.colorScheme.onPrimary)
                     }
                 },
                 colors = TopAppBarDefaults.centerAlignedTopAppBarColors(
                     containerColor = MaterialTheme.colorScheme.primary,
-                    titleContentColor = Color.White,
+                    titleContentColor = MaterialTheme.colorScheme.onPrimary,
                 ),
             )
         },
@@ -667,7 +670,7 @@ private fun BigButton(
     Button(
         onClick = { feedback(); onClick() },
         enabled = enabled,
-        colors = ButtonDefaults.buttonColors(containerColor = color, contentColor = Color.White),
+        colors = ButtonDefaults.buttonColors(containerColor = color, contentColor = inkFor(color)),
         shape = RoundedCornerShape(16.dp),
         modifier = Modifier.fillMaxWidth().height(64.dp),
     ) {
@@ -746,13 +749,13 @@ private fun ProcessPipeline(processes: List<ProcessBriefDto>, currentId: Int, cu
                         Icon(
                             Icons.Filled.Check,
                             contentDescription = null,
-                            tint = Color.White,
+                            tint = inkFor(circleColor),
                             modifier = Modifier.size(18.dp),
                         )
                     } else {
                         Text(
                             "${index + 1}",
-                            color = if (circleColor == Color(0xFFE5E7EB)) Color(0xFF9CA3AF) else Color.White,
+                            color = if (circleColor == Color(0xFFE5E7EB)) Color(0xFF9CA3AF) else inkFor(circleColor),
                             fontWeight = FontWeight.Bold,
                             fontSize = 15.sp,
                         )

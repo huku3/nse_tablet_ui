@@ -4,8 +4,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AccountCircle
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import jp.co.nse.worker.appContainer
 import jp.co.nse.worker.util.rememberClickFeedback
@@ -16,6 +16,6 @@ fun MyPageButton() {
     val context = LocalContext.current
     val feedback = rememberClickFeedback()
     IconButton(onClick = { feedback(); context.appContainer.openMyPage?.invoke() }) {
-        Icon(Icons.Filled.AccountCircle, contentDescription = "マイページ", tint = Color.White)
+        Icon(Icons.Filled.AccountCircle, contentDescription = "マイページ", tint = MaterialTheme.colorScheme.onPrimary)
     }
 }

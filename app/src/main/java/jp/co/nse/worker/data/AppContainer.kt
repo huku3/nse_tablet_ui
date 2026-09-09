@@ -55,6 +55,9 @@ class AppContainer(context: Context) {
     /** マイページ（メイン色の変更等）を開くコールバック。AppNavが起動時に設定する */
     var openMyPage: (() -> Unit)? = null
 
+    /** 担当工程マスタ画面を開くコールバック。AppNavが起動時に設定する */
+    var openProcessAssignments: (() -> Unit)? = null
+
     fun rebuildApi() {
         api = buildApi()
     }

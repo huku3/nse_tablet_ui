@@ -27,6 +27,9 @@ fun UserDto.canAssign(): Boolean = hasFeature("checksheet.assign_worker")
 /** 出荷カレンダーを見る権限を持つか */
 fun UserDto.canViewShippingCalendar(): Boolean = hasFeature("shipping.calendar")
 
+/** 担当工程マスタ（マイページからの導線）を見る権限を持つか */
+fun UserDto.canManageProcessAssignments(): Boolean = hasFeature("worker_process_assignments.view")
+
 /** Retrofit例外を日本語メッセージへ変換する */
 internal fun Throwable.toUserMessage(): String = when (this) {
     is java.net.UnknownHostException -> "サーバーに接続できません。接続先URLとネットワークを確認してください。"
@@ -59,7 +62,7 @@ class AuthRepository(
 ) {
     suspend fun login(email: String, password: String): ApiResult<UserDto> = try {
         val res = apiProvider().login(LoginRequest(email, password))
-        settings.saveToken(res.token, res.user.name, res.user.role, res.user.canAssign(), res.user.canViewShippingCalendar(), res.user.color)
+        settings.saveToken(res.token, res.user.name, res.user.role, res.user.canAssign(), res.user.canViewShippingCalendar(), res.user.canManageProcessAssignments(), res.user.color)
         ApiResult.Success(res.user)
     } catch (e: retrofit2.HttpException) {
         val msg = e.response()?.errorBody()?.string()?.let {
@@ -80,7 +83,7 @@ class AuthRepository(
     /** アカウントID＋社員番号でログイン */
     suspend fun loginById(userId: Int, employeeNumber: String): ApiResult<UserDto> = try {
         val res = apiProvider().loginById(LoginByIdRequest(userId, employeeNumber))
-        settings.saveToken(res.token, res.user.name, res.user.role, res.user.canAssign(), res.user.canViewShippingCalendar(), res.user.color)
+        settings.saveToken(res.token, res.user.name, res.user.role, res.user.canAssign(), res.user.canViewShippingCalendar(), res.user.canManageProcessAssignments(), res.user.color)
         ApiResult.Success(res.user)
     } catch (e: retrofit2.HttpException) {
         val msg = e.response()?.errorBody()?.string()?.let {
@@ -296,6 +299,44 @@ class ManagerRepository(
 
     suspend fun workers(): ApiResult<List<WorkerDto>> = try {
         ApiResult.Success(apiProvider().workers().workers)
+    } catch (e: Throwable) {
+        ApiResult.Failure(e.toUserMessage())
+    }
+
+    /** 担当工程マスタ：作業者一覧・工程マスタ一覧・現在の割り当てを取得 */
+    suspend fun processAssignments(): ApiResult<ProcessAssignmentsResponse> = try {
+        ApiResult.Success(apiProvider().processAssignments())
+    } catch (e: Throwable) {
+        ApiResult.Failure(e.toUserMessage())
+    }
+
+    /** 担当工程の割り当てON/OFFを切り替える。戻り値は切り替え後の状態 */
+    suspend fun toggleProcessAssignment(userId: Int, masterId: Int): ApiResult<Boolean> = try {
+        val res = apiProvider().toggleProcessAssignment(ProcessAssignmentRequest(userId, masterId))
+        ApiResult.Success(res.assigned)
+    } catch (e: Throwable) {
+        ApiResult.Failure(e.toUserMessage())
+    }
+
+    /** 自動割り振りのデフォルト担当者にする（同じ工程の他の担当者のデフォルトは自動的に解除される） */
+    suspend fun setDefaultProcessAssignment(userId: Int, masterId: Int): ApiResult<Unit> = try {
+        val response = apiProvider().setDefaultProcessAssignment(ProcessAssignmentRequest(userId, masterId))
+        if (response.isSuccessful) {
+            ApiResult.Success(Unit)
+        } else {
+            val raw = response.errorBody()?.string()
+            val message = raw?.let {
+                runCatching { errorJson.decodeFromString<ActionResponse>(it).message }.getOrNull()
+            }
+            ApiResult.Failure(message ?: "デフォルト担当者の設定に失敗しました（${response.code()}）。")
+        }
+    } catch (e: Throwable) {
+        ApiResult.Failure(e.toUserMessage())
+    }
+
+    /** デフォルト担当者の指定を解除する */
+    suspend fun unsetDefaultProcessAssignment(userId: Int, masterId: Int): ApiResult<Unit> = try {
+        handleAction(apiProvider().unsetDefaultProcessAssignment(ProcessAssignmentRequest(userId, masterId)))
     } catch (e: Throwable) {
         ApiResult.Failure(e.toUserMessage())
     }
