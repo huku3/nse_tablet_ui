@@ -71,6 +71,7 @@ import jp.co.nse.worker.ui.assignment.DeadlineCalendarDialog
 import jp.co.nse.worker.ui.assignment.WorkerPickerDialog
 import jp.co.nse.worker.ui.components.HeaderTitle
 import jp.co.nse.worker.ui.components.HeaderUserLabel
+import jp.co.nse.worker.ui.components.DashboardButton
 import jp.co.nse.worker.ui.components.MyPageButton
 import jp.co.nse.worker.ui.components.NotificationBell
 import jp.co.nse.worker.ui.components.ProcessAssignmentButton
@@ -136,6 +137,7 @@ fun CheckSheetScreen(
                     HeaderUserLabel(userName)
                     NotificationBell()
                     MyPageButton()
+                    DashboardButton()
                     ProcessAssignmentButton()
                     IconButton(onClick = { feedback(); vm.load() }) {
                         Icon(Icons.Filled.Refresh, contentDescription = "更新", tint = MaterialTheme.colorScheme.onPrimary)

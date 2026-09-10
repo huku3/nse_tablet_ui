@@ -13,28 +13,27 @@ import android.net.Uri
 import jp.co.nse.worker.appContainer
 import jp.co.nse.worker.ui.assignment.AssignmentDetailScreen
 import jp.co.nse.worker.ui.checksheet.CheckSheetScreen
+import jp.co.nse.worker.ui.dashboard.DashboardScreen
 import jp.co.nse.worker.ui.drawing.DrawingScreen
 import jp.co.nse.worker.ui.login.LoginScreen
+import jp.co.nse.worker.ui.mypage.MyPageScreen
 import jp.co.nse.worker.ui.processassignment.ProcessAssignmentScreen
-import jp.co.nse.worker.ui.settings.SettingsScreen
 import jp.co.nse.worker.ui.splash.SplashScreen
 import jp.co.nse.worker.ui.taskdetail.TaskDetailScreen
-import jp.co.nse.worker.ui.welcome.WelcomeScreen
 import kotlinx.coroutines.launch
 
 object Routes {
     const val SPLASH = "splash"
-    const val WELCOME = "welcome/{userName}"
+    const val DASHBOARD = "dashboard"
+    const val MYPAGE = "mypage"
     const val LOGIN = "login"
     const val HOME = "home"
     const val DETAIL = "detail/{processId}"
     const val ASSIGN_DETAIL = "assign/{orderId}"
-    const val SETTINGS = "settings"
     const val PROCESS_ASSIGNMENTS = "process-assignments"
     const val DRAWING = "drawing/{processId}?title={title}&orderId={orderId}&poNumber={poNumber}"
     const val CHECKSHEET = "checksheet/{orderId}"
 
-    fun welcome(userName: String) = "welcome/${Uri.encode(userName)}"
     fun detail(processId: Int) = "detail/$processId"
     fun assignDetail(orderId: Int) = "assign/$orderId"
     fun drawing(processId: Int, title: String?, orderId: Int, poNumber: String?) =
@@ -53,7 +52,9 @@ fun AppNav() {
     // 通知一覧のタップなど、NavControllerを直接持たないUIから工程詳細へ遷移できるようにする
     container.openTask = { processId -> navController.navigate(Routes.detail(processId)) }
     // どの画面のヘッダーからでもマイページへ遷移できるようにする
-    container.openMyPage = { navController.navigate(Routes.SETTINGS) }
+    container.openMyPage = { navController.navigate(Routes.MYPAGE) }
+    // どの画面のヘッダーからでもダッシュボードへ遷移できるようにする
+    container.openDashboard = { navController.navigate(Routes.DASHBOARD) }
     // 権限があるアカウントは、どの画面のヘッダーからでも担当工程マスタへ遷移できるようにする
     container.openProcessAssignments = { navController.navigate(Routes.PROCESS_ASSIGNMENTS) }
 
@@ -82,26 +83,31 @@ fun AppNav() {
             )
         }
 
-        composable(
-            route = Routes.WELCOME,
-            arguments = listOf(navArgument("userName") { type = NavType.StringType }),
-        ) { backStackEntry ->
-            val userName = backStackEntry.arguments?.getString("userName").orEmpty()
-            WelcomeScreen(
-                userName = userName,
-                onFinished = {
+        composable(Routes.DASHBOARD) {
+            DashboardScreen(
+                onBack = { navController.popBackStack() },
+                onContinue = {
                     container.notificationCenter.startPolling()
                     navController.navigate(Routes.HOME) {
-                        popUpTo(Routes.WELCOME) { inclusive = true }
+                        popUpTo(Routes.DASHBOARD) { inclusive = true }
                     }
                 },
+                onLogout = logout,
+            )
+        }
+
+        composable(Routes.MYPAGE) {
+            MyPageScreen(
+                onBack = { navController.popBackStack() },
+                onOpenTask = { processId -> navController.navigate(Routes.detail(processId)) },
+                onLogout = logout,
             )
         }
 
         composable(Routes.LOGIN) {
             LoginScreen(
-                onLoggedIn = { userName ->
-                    navController.navigate(Routes.welcome(userName)) {
+                onLoggedIn = {
+                    navController.navigate(Routes.DASHBOARD) {
                         popUpTo(Routes.LOGIN) { inclusive = true }
                     }
                 },
@@ -186,15 +192,7 @@ fun AppNav() {
             AssignmentDetailScreen(
                 orderId = orderId,
                 onBack = { navController.popBackStack() },
-                onLogout = logout,
-            )
-        }
-
-        composable(Routes.SETTINGS) {
-            SettingsScreen(
-                onBack = { navController.popBackStack() },
-                onOpenTask = { processId -> navController.navigate(Routes.detail(processId)) },
-                onOpenProcessAssignments = { navController.navigate(Routes.PROCESS_ASSIGNMENTS) },
+                onOpenCheckSheet = { id -> navController.navigate(Routes.checksheet(id)) },
                 onLogout = logout,
             )
         }

@@ -1,7 +1,6 @@
 package jp.co.nse.worker.ui.processassignment
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -15,7 +14,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -326,6 +324,7 @@ fun ProcessAssignmentScreen(onBack: () -> Unit, onLogout: () -> Unit = {}) {
     }
 }
 
+@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 @Composable
 private fun ProcessAssignmentContent(vm: ProcessAssignmentViewModel, feedback: () -> Unit) {
     Column(Modifier.fillMaxSize().padding(16.dp)) {
@@ -382,9 +381,11 @@ private fun ProcessAssignmentContent(vm: ProcessAssignmentViewModel, feedback: (
         }
         Spacer(Modifier.height(16.dp))
 
-        Row(
-            modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+        // 横スクロールだと工程が画面外に隠れてしまうため、折り返して全件を画面内に収める
+        androidx.compose.foundation.layout.FlowRow(
+            modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             vm.processMasters.forEach { master ->
                 val selected = vm.selectedMasterId == master.id
@@ -460,7 +461,10 @@ private fun WorkerAssignRow(
         Text(worker.name, fontWeight = FontWeight.SemiBold, fontSize = 16.sp, modifier = Modifier.weight(1f))
 
         if (assigned) {
-            IconButton(onClick = { feedback(); onToggleDefault() }, enabled = editable) {
+            IconButton(
+                onClick = { feedback(); onToggleDefault() },
+                enabled = editable,
+            ) {
                 Icon(
                     if (isDefault) Icons.Filled.Star else Icons.Filled.StarBorder,
                     contentDescription = "自動割り振りのデフォルト担当者にする",
@@ -470,6 +474,7 @@ private fun WorkerAssignRow(
         } else {
             Spacer(Modifier.size(48.dp))
         }
+        Spacer(Modifier.width(12.dp))
 
         Switch(
             checked = assigned,

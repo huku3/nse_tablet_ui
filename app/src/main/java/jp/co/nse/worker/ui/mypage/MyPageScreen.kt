@@ -1,4 +1,4 @@
-package jp.co.nse.worker.ui.settings
+package jp.co.nse.worker.ui.mypage
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -14,7 +14,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -22,19 +21,18 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Logout
-import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.Group
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.Button
 import androidx.compose.material3.CenterAlignedTopAppBar
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Tab
+import androidx.compose.material3.TabRow
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
@@ -59,16 +57,18 @@ import androidx.lifecycle.viewmodel.viewModelFactory
 import jp.co.nse.worker.appContainer
 import jp.co.nse.worker.data.ApiResult
 import jp.co.nse.worker.data.HistoryItemDto
+import jp.co.nse.worker.ui.components.DashboardButton
 import jp.co.nse.worker.ui.components.HeaderTitle
 import jp.co.nse.worker.ui.components.HeaderUserLabel
 import jp.co.nse.worker.ui.components.NotificationBell
+import jp.co.nse.worker.ui.components.ProcessAssignmentButton
 import jp.co.nse.worker.ui.components.ScrollToTopFab
 import jp.co.nse.worker.ui.components.rememberCurrentUserName
+import jp.co.nse.worker.ui.history.DayStat
 import jp.co.nse.worker.ui.history.DaySummaryCard
 import jp.co.nse.worker.ui.history.DayTabRow
 import jp.co.nse.worker.ui.history.HistoryCard
 import jp.co.nse.worker.ui.history.HistoryViewModel
-import jp.co.nse.worker.ui.history.DayStat
 import jp.co.nse.worker.ui.history.recentTabDates
 import jp.co.nse.worker.ui.theme.AccentPreset
 import jp.co.nse.worker.ui.theme.AccentPresets
@@ -82,14 +82,13 @@ import java.time.LocalDate
 /**
  * マイページ：ログイン中アカウントのメイン色の変更、および作業実績の表示。
  * メイン色はサーバー側 users.color に保存され、次回以降のログインでも引き継がれる。
- * 接続先サーバー設定はここでは変更できないようにしている（表示しない）。
+ * タブで「メイン色」「作業実績」を切り替えて、どちらか一方のみ表示する。
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun SettingsScreen(
+fun MyPageScreen(
     onBack: () -> Unit,
     onOpenTask: (processId: Int) -> Unit = {},
-    onOpenProcessAssignments: () -> Unit = {},
     onLogout: () -> Unit = {},
 ) {
     val context = LocalContext.current
@@ -99,12 +98,11 @@ fun SettingsScreen(
     val userName = rememberCurrentUserName()
 
     val accentHex by container.settings.accentColorFlow.collectAsState(initial = DefaultAccentHex)
-    val canManageProcessAssignments by container.settings.canManageProcessAssignmentsFlow.collectAsState(initial = false)
     var colorSaving by remember { mutableStateOf(false) }
     var colorError by remember { mutableStateOf<String?>(null) }
 
     val historyVm: HistoryViewModel = viewModel(
-        factory = viewModelFactory { initializer { HistoryViewModel(container.workerRepository) } }
+        factory = viewModelFactory { initializer { HistoryViewModel(container.workerRepository) } },
     )
     LaunchedEffect(Unit) { historyVm.load() }
 
@@ -136,6 +134,8 @@ fun SettingsScreen(
                 actions = {
                     HeaderUserLabel(userName)
                     NotificationBell()
+                    DashboardButton()
+                    ProcessAssignmentButton()
                     IconButton(onClick = { feedback(); historyVm.load() }) {
                         Icon(Icons.Filled.Refresh, contentDescription = "更新", tint = MaterialTheme.colorScheme.onPrimary)
                     }
@@ -160,8 +160,6 @@ fun SettingsScreen(
                 onPickColor = ::pickColor,
                 historyVm = historyVm,
                 onOpenTask = onOpenTask,
-                canManageProcessAssignments = canManageProcessAssignments,
-                onOpenProcessAssignments = onOpenProcessAssignments,
             )
             ScrollToTopFab(
                 visible = listState.firstVisibleItemIndex > 0,
@@ -182,10 +180,8 @@ private fun MyPageContent(
     onPickColor: (String) -> Unit,
     historyVm: HistoryViewModel,
     onOpenTask: (Int) -> Unit,
-    canManageProcessAssignments: Boolean,
-    onOpenProcessAssignments: () -> Unit,
 ) {
-    val feedback = rememberClickFeedback()
+    var selectedSection by remember { mutableStateOf(1) }
     val today = remember { LocalDate.now() }
     var selectedDate by remember { mutableStateOf<LocalDate?>(null) }
     val effectiveSelected = selectedDate ?: today
@@ -216,116 +212,92 @@ private fun MyPageContent(
         contentPadding = PaddingValues(start = 24.dp, top = 24.dp, end = 24.dp, bottom = 96.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
-        item(key = "accent") {
-            Column {
-                Text("メイン色", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                Text(
-                    "${userName}さんのアカウントのメイン色です。ヘッダーやボタンの色に使われ、次回ログイン時も引き継がれます。",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = Color(0xFF6B7280),
-                    modifier = Modifier.padding(top = 4.dp, bottom = 16.dp),
+        item(key = "tabs") {
+            TabRow(selectedTabIndex = selectedSection, containerColor = Color.Transparent) {
+                Tab(
+                    selected = selectedSection == 0,
+                    onClick = { selectedSection = 0 },
+                    text = { Text("メイン色", fontWeight = FontWeight.Bold) },
                 )
-                Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                    AccentPresets.forEach { preset ->
-                        ColorSwatch(
-                            preset = preset,
-                            selected = preset.hex.equals(accentHex, ignoreCase = true),
-                            saving = colorSaving,
-                            onClick = { onPickColor(preset.hex) },
-                        )
-                    }
-                }
-                colorError?.let {
-                    Text(it, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(top = 12.dp))
-                }
+                Tab(
+                    selected = selectedSection == 1,
+                    onClick = { selectedSection = 1 },
+                    text = { Text("作業実績", fontWeight = FontWeight.Bold) },
+                )
             }
         }
 
-        if (canManageProcessAssignments) {
-            item(key = "process-assignments") {
-                Column {
-                    Spacer(Modifier.height(22.dp))
-                    HorizontalDivider()
-                    Spacer(Modifier.height(22.dp))
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clip(androidx.compose.foundation.shape.RoundedCornerShape(14.dp))
-                            .background(Color(0xFFF9FAFB))
-                            .clickable { feedback(); onOpenProcessAssignments() }
-                            .padding(horizontal = 16.dp, vertical = 16.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Icon(Icons.Filled.Group, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
-                        Spacer(Modifier.width(10.dp))
-                        Text(
-                            "担当工程マスタ",
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 15.sp,
-                            color = MaterialTheme.colorScheme.onSurface,
-                            modifier = Modifier.weight(1f),
-                        )
-                        Icon(Icons.AutoMirrored.Filled.ArrowForward, contentDescription = null, tint = Color(0xFF9CA3AF))
-                    }
-                }
-            }
-        }
-
-        item(key = "divider") {
-            Column {
-                Spacer(Modifier.height(22.dp))
-                HorizontalDivider()
-                Spacer(Modifier.height(22.dp))
-                Text("作業実績", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                Spacer(Modifier.height(12.dp))
-            }
-        }
-
-        when {
-            historyVm.loading && historyVm.items.isEmpty() -> item(key = "history-loading") {
-                Box(Modifier.fillMaxWidth().padding(vertical = 32.dp), contentAlignment = Alignment.Center) {
-                    CircularProgressIndicator()
-                }
-            }
-            historyVm.error != null && historyVm.items.isEmpty() -> item(key = "history-error") {
-                Column(
-                    modifier = Modifier.fillMaxWidth().padding(vertical = 16.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                ) {
-                    Text(historyVm.error ?: "", color = MaterialTheme.colorScheme.error)
-                    Spacer(Modifier.height(12.dp))
-                    Button(onClick = { historyVm.load() }) { Text("再読み込み") }
-                }
-            }
-            else -> {
-                item(key = "tabs") {
-                    DayTabRow(
-                        dates = tabDates,
-                        today = today,
-                        selectedDate = effectiveSelected,
-                        onSelect = { selectedDate = it },
+        if (selectedSection == 0) {
+            item(key = "accent") {
+                Column(Modifier.padding(top = 16.dp)) {
+                    Text(
+                        "${userName}さんのアカウントのメイン色です。ヘッダーやボタンの色に使われ、次回ログイン時も引き継がれます。",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = Color(0xFF6B7280),
+                        modifier = Modifier.padding(bottom = 16.dp),
                     )
-                }
-                item(key = "summary") {
-                    DaySummaryCard(
-                        date = effectiveSelected,
-                        today = today,
-                        stat = selectedStat,
-                        previousStat = previousStat,
-                    )
-                }
-                if (selectedItems.isEmpty()) {
-                    item(key = "empty") {
-                        Column(
-                            modifier = Modifier.fillMaxWidth().padding(vertical = 32.dp),
-                            horizontalAlignment = Alignment.CenterHorizontally,
-                        ) {
-                            Text("この日の完了実績はありません", color = Color(0xFF9CA3AF), fontWeight = FontWeight.Bold)
+                    Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                        AccentPresets.forEach { preset ->
+                            ColorSwatch(
+                                preset = preset,
+                                selected = preset.hex.equals(accentHex, ignoreCase = true),
+                                saving = colorSaving,
+                                onClick = { onPickColor(preset.hex) },
+                            )
                         }
                     }
-                } else {
-                    items(selectedItems, key = { "history-${it.id}" }) { item ->
-                        HistoryCard(item = item, onClick = { onOpenTask(item.id) })
+                    colorError?.let {
+                        Text(it, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(top = 12.dp))
+                    }
+                }
+            }
+        } else {
+            when {
+                historyVm.loading && historyVm.items.isEmpty() -> item(key = "history-loading") {
+                    Box(Modifier.fillMaxWidth().padding(vertical = 32.dp), contentAlignment = Alignment.Center) {
+                        CircularProgressIndicator()
+                    }
+                }
+                historyVm.error != null && historyVm.items.isEmpty() -> item(key = "history-error") {
+                    Column(
+                        modifier = Modifier.fillMaxWidth().padding(vertical = 16.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                    ) {
+                        Text(historyVm.error ?: "", color = MaterialTheme.colorScheme.error)
+                        Spacer(Modifier.height(12.dp))
+                        Button(onClick = { historyVm.load() }) { Text("再読み込み") }
+                    }
+                }
+                else -> {
+                    item(key = "day-tabs") {
+                        DayTabRow(
+                            dates = tabDates,
+                            today = today,
+                            selectedDate = effectiveSelected,
+                            onSelect = { selectedDate = it },
+                        )
+                    }
+                    item(key = "summary") {
+                        DaySummaryCard(
+                            date = effectiveSelected,
+                            today = today,
+                            stat = selectedStat,
+                            previousStat = previousStat,
+                        )
+                    }
+                    if (selectedItems.isEmpty()) {
+                        item(key = "empty") {
+                            Column(
+                                modifier = Modifier.fillMaxWidth().padding(vertical = 32.dp),
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                            ) {
+                                Text("この日の完了実績はありません", color = Color(0xFF9CA3AF), fontWeight = FontWeight.Bold)
+                            }
+                        }
+                    } else {
+                        items(selectedItems, key = { "history-${it.id}" }) { item ->
+                            HistoryCard(item = item, onClick = { onOpenTask(item.id) })
+                        }
                     }
                 }
             }

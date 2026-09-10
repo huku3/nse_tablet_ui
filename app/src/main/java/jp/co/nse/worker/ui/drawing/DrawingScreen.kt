@@ -53,6 +53,7 @@ import androidx.compose.ui.unit.sp
 import jp.co.nse.worker.appContainer
 import jp.co.nse.worker.data.ApiResult
 import jp.co.nse.worker.ui.components.HeaderUserLabel
+import jp.co.nse.worker.ui.components.DashboardButton
 import jp.co.nse.worker.ui.components.MyPageButton
 import jp.co.nse.worker.ui.components.NotificationBell
 import jp.co.nse.worker.ui.components.ProcessAssignmentButton
@@ -123,6 +124,7 @@ fun DrawingScreen(
                     HeaderUserLabel(userName)
                     NotificationBell()
                     MyPageButton()
+                    DashboardButton()
                     ProcessAssignmentButton()
                     IconButton(onClick = { feedback(); reloadKey++ }) {
                         Icon(Icons.Filled.Refresh, contentDescription = "更新", tint = MaterialTheme.colorScheme.onPrimary)

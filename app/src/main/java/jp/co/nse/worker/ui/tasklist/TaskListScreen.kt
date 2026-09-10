@@ -70,6 +70,7 @@ import jp.co.nse.worker.data.TaskItemDto
 import jp.co.nse.worker.data.WorkStatus
 import jp.co.nse.worker.data.WorkerRepository
 import jp.co.nse.worker.ui.components.HeaderUserLabel
+import jp.co.nse.worker.ui.components.DashboardButton
 import jp.co.nse.worker.ui.components.MyPageButton
 import jp.co.nse.worker.ui.components.NotificationBell
 import jp.co.nse.worker.ui.components.ProcessAssignmentButton
@@ -231,6 +232,7 @@ fun TaskListScreen(
                     HeaderUserLabel(userName)
                     NotificationBell()
                     MyPageButton()
+                    DashboardButton()
                     ProcessAssignmentButton()
                     IconButton(onClick = { feedback(); vm.load() }) {
                         Icon(Icons.Filled.Refresh, contentDescription = "更新", tint = MaterialTheme.colorScheme.onPrimary)

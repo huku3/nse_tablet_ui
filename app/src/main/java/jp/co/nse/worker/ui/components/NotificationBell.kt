@@ -103,6 +103,78 @@ fun NotificationBell() {
     }
 }
 
+/**
+ * ダッシュボードなどに置く、未読通知のプレビューカード。タップで通知一覧をシート表示する。
+ * 未読が無い場合は何も表示しない。
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun NotificationPreviewCard(modifier: Modifier = Modifier) {
+    val context = LocalContext.current
+    val center = context.appContainer.notificationCenter
+    val feedback = rememberClickFeedback()
+    var showSheet by remember { mutableStateOf(false) }
+    val unread = center.notifications
+
+    if (unread.isEmpty()) return
+
+    Box(
+        modifier = modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(16.dp))
+            .background(Color.White)
+            .clickable { feedback(); showSheet = true }
+            .padding(16.dp),
+    ) {
+        Column {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Filled.NotificationsActive, contentDescription = null, tint = Red500)
+                Spacer(Modifier.width(8.dp))
+                Text("未読の通知 ${unread.size}件", fontWeight = FontWeight.Bold, fontSize = 15.sp)
+            }
+            Spacer(Modifier.height(10.dp))
+            unread.take(3).forEach { notification ->
+                Text(
+                    notificationSummary(notification),
+                    fontSize = 13.sp,
+                    color = Color(0xFF6B7280),
+                    maxLines = 1,
+                    modifier = Modifier.padding(vertical = 2.dp),
+                )
+            }
+        }
+    }
+
+    if (showSheet) {
+        val sheetState = rememberModalBottomSheetState()
+        ModalBottomSheet(
+            onDismissRequest = { showSheet = false },
+            sheetState = sheetState,
+        ) {
+            NotificationSheetContent(
+                notifications = center.notifications,
+                onMarkAllRead = { feedback(); center.markAllRead() },
+                onNotificationClick = { notification ->
+                    feedback()
+                    showSheet = false
+                    notification.data.process_id?.let { context.appContainer.openTask?.invoke(it) }
+                },
+            )
+        }
+    }
+}
+
+private fun notificationSummary(notification: NotificationDto): String {
+    val data = notification.data
+    val orderLabel = data.order_id?.let { "No.$it" } ?: (data.part_name ?: "受注")
+    return when (data.type) {
+        "process_assigned" -> "${data.assigned_by ?: "担当者"}さんから${orderLabel}の作業指示"
+        "process_turn" -> "${orderLabel}の前工程が完了、作業開始できます"
+        "process_broken" -> "工程が故障中として報告されました"
+        else -> "お知らせ"
+    }
+}
+
 @Composable
 private fun NotificationSheetContent(
     notifications: List<NotificationDto>,

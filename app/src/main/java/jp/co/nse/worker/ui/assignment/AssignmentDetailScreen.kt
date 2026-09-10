@@ -21,6 +21,8 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.ArrowForward
+import androidx.compose.material.icons.automirrored.filled.Assignment
 import androidx.compose.material.icons.automirrored.filled.Logout
 import androidx.compose.material.icons.automirrored.filled.Undo
 import androidx.compose.material.icons.filled.AutoAwesome
@@ -56,6 +58,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.ViewModel
@@ -73,6 +76,7 @@ import jp.co.nse.worker.data.WorkStatus
 import jp.co.nse.worker.data.WorkerDto
 import jp.co.nse.worker.ui.components.HeaderTitle
 import jp.co.nse.worker.ui.components.HeaderUserLabel
+import jp.co.nse.worker.ui.components.DashboardButton
 import jp.co.nse.worker.ui.components.MyPageButton
 import jp.co.nse.worker.ui.components.NotificationBell
 import jp.co.nse.worker.ui.components.ProcessAssignmentButton
@@ -266,6 +270,7 @@ class AssignmentDetailViewModel(
 fun AssignmentDetailScreen(
     orderId: Int,
     onBack: () -> Unit,
+    onOpenCheckSheet: (orderId: Int) -> Unit = {},
     onLogout: () -> Unit = {},
 ) {
     val context = androidx.compose.ui.platform.LocalContext.current
@@ -318,6 +323,7 @@ fun AssignmentDetailScreen(
                     HeaderUserLabel(userName)
                     NotificationBell()
                     MyPageButton()
+                    DashboardButton()
                     ProcessAssignmentButton()
                     IconButton(onClick = { feedback(); vm.load() }) {
                         Icon(Icons.Filled.Refresh, contentDescription = "更新", tint = MaterialTheme.colorScheme.onPrimary)
@@ -363,6 +369,43 @@ fun AssignmentDetailScreen(
                         ),
                         verticalArrangement = Arrangement.spacedBy(10.dp),
                     ) {
+                        item(key = "checksheet-link") {
+                            Card(
+                                colors = CardDefaults.cardColors(containerColor = Color.White),
+                                shape = RoundedCornerShape(14.dp),
+                                modifier = Modifier.fillMaxWidth(),
+                            ) {
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clickable { feedback(); onOpenCheckSheet(order.id) }
+                                        .padding(horizontal = 16.dp, vertical = 14.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                ) {
+                                    Icon(
+                                        Icons.AutoMirrored.Filled.Assignment,
+                                        contentDescription = null,
+                                        tint = MaterialTheme.colorScheme.primary,
+                                        modifier = Modifier.size(18.dp),
+                                    )
+                                    Spacer(Modifier.width(8.dp))
+                                    Text(
+                                        "工程管理チェックシートを見る",
+                                        color = MaterialTheme.colorScheme.primary,
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 15.sp,
+                                        textDecoration = TextDecoration.Underline,
+                                        modifier = Modifier.weight(1f),
+                                    )
+                                    Icon(
+                                        Icons.AutoMirrored.Filled.ArrowForward,
+                                        contentDescription = null,
+                                        tint = MaterialTheme.colorScheme.primary,
+                                        modifier = Modifier.size(16.dp),
+                                    )
+                                }
+                            }
+                        }
                         item {
                             val hasUnassigned = order.processes.any {
                                 it.status != WorkStatus.COMPLETED && it.worker.isNullOrBlank()
