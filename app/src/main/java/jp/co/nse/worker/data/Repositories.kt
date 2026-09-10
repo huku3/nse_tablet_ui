@@ -47,15 +47,17 @@ internal fun handleAction(response: Response<ActionResponse>): ApiResult<Unit> {
         val body = response.body()
         // 成功でも {ok:false} を返すケースは無いが念のため確認
         return if (body?.ok == false) {
-            ApiResult.Failure(body.message ?: "操作に失敗しました。")
+            ApiResult.Failure(body.message?.takeIf { it.isNotBlank() } ?: "操作に失敗しました。")
         } else {
             ApiResult.Success(Unit)
         }
     }
     val raw = response.errorBody()?.string()
+    // Laravelのabort_unless(...)がメッセージ無しで呼ばれると {"message":""} を返すことがあり、
+    // その場合はnullではなく空文字が入るため、blankもnull同様にフォールバックさせる
     val message = raw?.let {
         runCatching { errorJson.decodeFromString<ActionResponse>(it).message }.getOrNull()
-    }
+    }?.takeIf { it.isNotBlank() }
     return ApiResult.Failure(message ?: "操作に失敗しました（${response.code()}）。")
 }
 
