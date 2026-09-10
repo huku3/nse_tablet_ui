@@ -52,8 +52,8 @@ private enum class HomeTab(val label: String, val icon: ImageVector) {
 
 /**
  * ログイン後のホーム。実際に権限を持つタブだけを下部に並べる（割り当て＝checksheet.assign_worker、
- * 受注一覧＝orders.view、出荷カレンダー＝shipping.calendar）。割り当て権限を持つ場合は
- * 受注一覧タブと内容が重複するため受注一覧タブは表示しない。タブが複数ある場合は、
+ * 受注一覧＝orders.view、出荷カレンダー＝shipping.calendar）。割り当てと受注一覧は独立した
+ * 別機能のため、両方の権限を持つアカウントには両方のタブを表示する。タブが複数ある場合は、
  * 下部タブのタップだけでなく画面を横にスワイプしても切り替えられるようにする。
  */
 @Composable
@@ -74,11 +74,10 @@ fun HomeScreen(
     val tabs = remember(canAssign, canViewOrders, canViewShipping) {
         buildList {
             add(HomeTab.TASKS)
-            if (canAssign) {
-                add(HomeTab.ASSIGN)
-            } else if (canViewOrders) {
-                add(HomeTab.ORDERS)
-            }
+            // 割り当て（checksheet.assign_worker）と受注一覧（orders.view）は独立した別機能のため、
+            // 両方の権限を持つアカウントには両方のタブを表示する
+            if (canAssign) add(HomeTab.ASSIGN)
+            if (canViewOrders) add(HomeTab.ORDERS)
             if (canViewShipping) add(HomeTab.SHIPPING)
         }
     }

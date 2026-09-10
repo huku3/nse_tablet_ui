@@ -19,9 +19,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Logout
-import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -31,7 +29,6 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBarDefaults
@@ -101,7 +98,6 @@ class AssignmentListViewModel(
         private set
     var filter by mutableStateOf(DashboardFilter.ALL)
     var statusFilters by mutableStateOf<Set<String>>(emptySet())
-    var searchQuery by mutableStateOf("")
 
     fun load() {
         viewModelScope.launch {
@@ -151,24 +147,15 @@ class AssignmentListViewModel(
     val urgentCount: Int get() = orders.count { (businessDaysFor(it) ?: Int.MAX_VALUE) <= 3 }
     val unassignedCount: Int get() = orders.count { hasUnassigned(it) }
 
-    val filteredOrders: List<OrderAssignDto> get() {
-        val base = when (mode) {
-            OrderListMode.ASSIGNMENT -> when (filter) {
-                DashboardFilter.ALL -> orders
-                DashboardFilter.URGENT -> orders.filter { (businessDaysFor(it) ?: Int.MAX_VALUE) <= 3 }
-                DashboardFilter.TODAY -> orders.filter { businessDaysFor(it) == 0 }
-                DashboardFilter.UNASSIGNED -> orders.filter { hasUnassigned(it) }
-            }
-            OrderListMode.ORDER_LIST -> {
-                if (statusFilters.isEmpty()) orders else orders.filter { it.status in statusFilters }
-            }
+    val filteredOrders: List<OrderAssignDto> get() = when (mode) {
+        OrderListMode.ASSIGNMENT -> when (filter) {
+            DashboardFilter.ALL -> orders
+            DashboardFilter.URGENT -> orders.filter { (businessDaysFor(it) ?: Int.MAX_VALUE) <= 3 }
+            DashboardFilter.TODAY -> orders.filter { businessDaysFor(it) == 0 }
+            DashboardFilter.UNASSIGNED -> orders.filter { hasUnassigned(it) }
         }
-        val query = searchQuery.trim()
-        if (query.isEmpty()) return base
-        return base.filter { order ->
-            order.customer_name?.contains(query, ignoreCase = true) == true ||
-                order.part_number?.contains(query, ignoreCase = true) == true ||
-                order.id.toString().contains(query)
+        OrderListMode.ORDER_LIST -> {
+            if (statusFilters.isEmpty()) orders else orders.filter { it.status in statusFilters }
         }
     }
 
@@ -283,26 +270,6 @@ fun AssignmentListScreen(
                                 orders = vm.orders,
                                 selectedStatuses = vm.statusFilters,
                                 onSelect = { vm.toggleStatusFilter(it) },
-                            )
-                        }
-                        if (mode == OrderListMode.ASSIGNMENT) {
-                            OutlinedTextField(
-                                value = vm.searchQuery,
-                                onValueChange = { vm.searchQuery = it },
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(start = 16.dp, end = 16.dp, bottom = 12.dp),
-                                placeholder = { Text("客先名・品番・受注Noで検索") },
-                                leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null) },
-                                trailingIcon = {
-                                    if (vm.searchQuery.isNotEmpty()) {
-                                        IconButton(onClick = { feedback(); vm.searchQuery = "" }) {
-                                            Icon(Icons.Filled.Close, contentDescription = "クリア")
-                                        }
-                                    }
-                                },
-                                singleLine = true,
-                                shape = RoundedCornerShape(12.dp),
                             )
                         }
                         Box(Modifier.weight(1f).fillMaxWidth()) {

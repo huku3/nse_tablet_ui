@@ -502,7 +502,7 @@ private fun EmployeeNumberPanel(
                     }
                     Spacer(Modifier.size(12.dp))
                     Text(
-                        "上のアカウントを選ぶと社員番号を入力できます",
+                        "アカウントを選ぶと社員番号を入力できます",
                         fontSize = 14.sp,
                         color = Gray500,
                         modifier = Modifier.weight(1f),
