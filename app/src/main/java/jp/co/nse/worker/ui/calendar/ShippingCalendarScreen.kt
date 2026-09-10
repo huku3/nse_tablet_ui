@@ -54,6 +54,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
@@ -78,6 +79,7 @@ import jp.co.nse.worker.ui.components.HeaderUserLabel
 import jp.co.nse.worker.ui.components.DashboardButton
 import jp.co.nse.worker.ui.components.MyPageButton
 import jp.co.nse.worker.ui.components.NotificationBell
+import jp.co.nse.worker.ui.components.OrderStatusBadge
 import jp.co.nse.worker.ui.components.ProcessAssignmentButton
 import jp.co.nse.worker.ui.components.rememberCurrentUserName
 import jp.co.nse.worker.ui.scan.startBarcodeScan
@@ -85,6 +87,7 @@ import jp.co.nse.worker.ui.theme.Gray500
 import jp.co.nse.worker.ui.theme.Green600
 import jp.co.nse.worker.ui.theme.Indigo50
 import jp.co.nse.worker.ui.theme.inkFor
+import jp.co.nse.worker.util.AutoRefreshEffect
 import jp.co.nse.worker.util.DateUtil
 import jp.co.nse.worker.util.rememberClickFeedback
 import kotlinx.coroutines.launch
@@ -301,6 +304,7 @@ class ShippingCalendarViewModel(private val repo: ManagerRepository) : ViewModel
 fun ShippingCalendarScreen(
     onOpenCheckSheet: (orderId: Int) -> Unit,
     onLogout: () -> Unit = {},
+    isActive: Boolean = true,
 ) {
     val feedback = rememberClickFeedback()
     val context = LocalContext.current
@@ -315,7 +319,10 @@ fun ShippingCalendarScreen(
     val scope = rememberCoroutineScope()
     val onError: (String) -> Unit = { msg -> scope.launch { snackbarHost.showSnackbar(msg) } }
 
-    LaunchedEffect(Unit) { vm.load() }
+    // 生産管理システム側の更新をタブレットにも反映するため、このタブが表示されている間
+    // だけ30秒おきに裏側で再取得する（表示中の月をそのまま再取得。一覧が既にあるときは
+    // スピナーを出さず静かに更新）。初回表示時とタブに切り替わった瞬間にも即座に1回再取得する
+    AutoRefreshEffect(isActive = isActive, refreshImmediately = true) { vm.load() }
 
     fun goToMonth(target: YearMonth) {
         feedback()
@@ -815,6 +822,16 @@ private fun ShippingOrderRow(
                 color = Gray500.copy(alpha = dim),
                 maxLines = 1,
             )
+            Spacer(Modifier.height(Space1 / 2))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    "受注No.${order.id}",
+                    fontSize = 12.sp,
+                    color = Gray500.copy(alpha = dim),
+                )
+                Spacer(Modifier.width(Space2))
+                OrderStatusBadge(order.status, modifier = Modifier.alpha(dim))
+            }
         }
         Spacer(Modifier.width(Space3))
         Column(horizontalAlignment = Alignment.End) {

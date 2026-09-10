@@ -81,22 +81,24 @@ fun HomeScreen(
             // 両方の権限を持つアカウントには両方のタブを表示する
             if (canAssign) add(HomeTab.ASSIGN)
             if (canViewOrders) add(HomeTab.ORDERS)
-            // 在庫の入荷・引当もWebの受注一覧権限（orders.view）を持つアカウント向けの機能
-            if (canViewOrders) add(HomeTab.INVENTORY)
+            // 在庫は受注一覧権限（orders.view、閲覧のみ）か割り当て権限（checksheet.assign_worker、
+            // 閲覧＋入荷・引当等の操作）のどちらかを持つアカウントに表示する
+            if (canViewOrders || canAssign) add(HomeTab.INVENTORY)
             if (canViewShipping) add(HomeTab.SHIPPING)
         }
     }
 
     @Composable
-    fun TabContent(tab: HomeTab) {
+    fun TabContent(tab: HomeTab, isActive: Boolean) {
         when (tab) {
             HomeTab.TASKS -> TaskListScreen(
                 onOpenTask = onOpenTask,
                 onLogout = onLogout,
                 completedProcessName = completedProcessName,
                 onCompletedMessageShown = onCompletedMessageShown,
+                isActive = isActive,
             )
-            HomeTab.ASSIGN -> AssignmentListScreen(onOpenOrder = onOpenOrder, onLogout = onLogout)
+            HomeTab.ASSIGN -> AssignmentListScreen(onOpenOrder = onOpenOrder, onLogout = onLogout, isActive = isActive)
             // 受注一覧のみの権限では担当者割り当ての編集はできないため、タップ先は
             // 工程管理チェックシート（閲覧のみ）にする
             HomeTab.ORDERS -> AssignmentListScreen(
@@ -104,14 +106,15 @@ fun HomeScreen(
                 onLogout = onLogout,
                 title = "受注一覧",
                 mode = OrderListMode.ORDER_LIST,
+                isActive = isActive,
             )
-            HomeTab.INVENTORY -> InventoryScreen(onLogout = onLogout)
-            HomeTab.SHIPPING -> ShippingCalendarScreen(onOpenCheckSheet = onOpenCheckSheet, onLogout = onLogout)
+            HomeTab.INVENTORY -> InventoryScreen(onLogout = onLogout, isActive = isActive)
+            HomeTab.SHIPPING -> ShippingCalendarScreen(onOpenCheckSheet = onOpenCheckSheet, onLogout = onLogout, isActive = isActive)
         }
     }
 
     if (tabs.size <= 1) {
-        TabContent(HomeTab.TASKS)
+        TabContent(HomeTab.TASKS, isActive = true)
         return
     }
 
@@ -143,9 +146,13 @@ fun HomeScreen(
         ) {
             HorizontalPager(
                 state = pagerState,
+                // 全タブをあらかじめcomposeしたまま維持する。デフォルト（0）だと画面外のタブは
+                // スワイプ/タップで表示されるたびに破棄→再構築され、その瞬間に各タブの初回データ
+                // 取得（LaunchedEffect等）が走り直してラグや通信の重複が発生していたため
+                beyondViewportPageCount = tabs.size,
                 modifier = Modifier.weight(1f).fillMaxWidth(),
             ) { page ->
-                TabContent(tabs[page])
+                TabContent(tabs[page], isActive = pagerState.currentPage == page)
             }
 
             // 横スワイプできることを示す薄いマーク。タップでもページを切り替えられる

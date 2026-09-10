@@ -82,6 +82,7 @@ import jp.co.nse.worker.ui.theme.Green600
 import jp.co.nse.worker.ui.theme.Orange400
 import jp.co.nse.worker.ui.theme.Indigo700
 import jp.co.nse.worker.ui.theme.Red500
+import jp.co.nse.worker.util.AutoRefreshEffect
 import jp.co.nse.worker.util.DateUtil
 import jp.co.nse.worker.util.rememberClickFeedback
 import kotlinx.coroutines.flow.firstOrNull
@@ -135,6 +136,7 @@ fun TaskListScreen(
     onLogout: () -> Unit,
     completedProcessName: String? = null,
     onCompletedMessageShown: () -> Unit = {},
+    isActive: Boolean = true,
 ) {
     val feedback = rememberClickFeedback()
     val context = androidx.compose.ui.platform.LocalContext.current
@@ -196,6 +198,11 @@ fun TaskListScreen(
         lifecycleOwner.lifecycle.addObserver(observer)
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
+
+    // 生産管理システム側の更新をタブレットにも反映するため、このタブが表示されている間
+    // だけ30秒おきに裏側で再取得する（一覧が既にあるときはスピナーを出さず静かに更新）。
+    // タブに切り替わった瞬間にも即座に1回再取得する
+    AutoRefreshEffect(isActive = isActive, refreshImmediately = true) { vm.load() }
 
     Scaffold(
         snackbarHost = { SnackbarHost(snackbarHost) },

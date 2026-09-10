@@ -22,6 +22,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Logout
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Remove
 import androidx.compose.material.icons.filled.Warning
@@ -37,14 +38,13 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.SnackbarHost
-import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Tab
 import androidx.compose.material3.TabRow
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -83,6 +83,7 @@ import jp.co.nse.worker.ui.components.ScrollToTopFab
 import jp.co.nse.worker.ui.components.rememberCurrentUserName
 import jp.co.nse.worker.ui.theme.Amber500
 import jp.co.nse.worker.ui.theme.Red500
+import jp.co.nse.worker.util.AutoRefreshEffect
 import jp.co.nse.worker.util.DateUtil
 import jp.co.nse.worker.util.rememberClickFeedback
 import kotlinx.coroutines.launch
@@ -103,6 +104,7 @@ class InventoryViewModel(private val repo: ManagerRepository) : ViewModel() {
     var materials by mutableStateOf<List<MaterialInventoryDto>>(emptyList())
         private set
     var message by mutableStateOf<String?>(null)
+    var messageIsError by mutableStateOf(false)
 
     var candidatesLoading by mutableStateOf<Set<Int>>(emptySet())
         private set
@@ -143,7 +145,7 @@ class InventoryViewModel(private val repo: ManagerRepository) : ViewModel() {
         viewModelScope.launch {
             when (val result = repo.materialCandidates(materialInventoryId)) {
                 is ApiResult.Success -> candidatesByMaterial = candidatesByMaterial + (materialInventoryId to result.data)
-                is ApiResult.Failure -> message = result.message
+                is ApiResult.Failure -> { message = result.message; messageIsError = true }
             }
             candidatesLoading = candidatesLoading - materialInventoryId
         }
@@ -154,10 +156,11 @@ class InventoryViewModel(private val repo: ManagerRepository) : ViewModel() {
             when (val result = repo.restockMaterial(materialInventoryId, quantity, note)) {
                 is ApiResult.Success -> {
                     message = "入荷を記録しました。"
+                    messageIsError = false
                     loadMaterials()
                     onDone()
                 }
-                is ApiResult.Failure -> message = result.message
+                is ApiResult.Failure -> { message = result.message; messageIsError = true }
             }
         }
     }
@@ -167,10 +170,11 @@ class InventoryViewModel(private val repo: ManagerRepository) : ViewModel() {
             when (val result = repo.allocateMaterial(materialInventoryId, orderId, quantity)) {
                 is ApiResult.Success -> {
                     message = "受注 No.$orderId へ引き当てました。"
+                    messageIsError = false
                     loadMaterials()
                     onDone()
                 }
-                is ApiResult.Failure -> message = result.message
+                is ApiResult.Failure -> { message = result.message; messageIsError = true }
             }
         }
     }
@@ -180,9 +184,10 @@ class InventoryViewModel(private val repo: ManagerRepository) : ViewModel() {
             when (val result = repo.deallocateMaterial(allocationId)) {
                 is ApiResult.Success -> {
                     message = "引き当てを取り消しました。"
+                    messageIsError = false
                     loadMaterials()
                 }
-                is ApiResult.Failure -> message = result.message
+                is ApiResult.Failure -> { message = result.message; messageIsError = true }
             }
         }
     }
@@ -192,9 +197,10 @@ class InventoryViewModel(private val repo: ManagerRepository) : ViewModel() {
             when (val result = repo.deleteMaterialTransaction(transactionId)) {
                 is ApiResult.Success -> {
                     message = "入荷の取り消しをしました。"
+                    messageIsError = false
                     loadMaterials()
                 }
-                is ApiResult.Failure -> message = result.message
+                is ApiResult.Failure -> { message = result.message; messageIsError = true }
             }
         }
     }
@@ -206,7 +212,7 @@ class InventoryViewModel(private val repo: ManagerRepository) : ViewModel() {
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun InventoryScreen(onLogout: () -> Unit = {}) {
+fun InventoryScreen(onLogout: () -> Unit = {}, isActive: Boolean = true) {
     val context = androidx.compose.ui.platform.LocalContext.current
     val container = context.appContainer
     val vm: InventoryViewModel = viewModel(
@@ -214,19 +220,26 @@ fun InventoryScreen(onLogout: () -> Unit = {}) {
     )
     val feedback = rememberClickFeedback()
     val userName = rememberCurrentUserName()
-    val snackbar = remember { SnackbarHostState() }
+    // 在庫の閲覧はorders.view権限で足りるが、入荷・引当・取消などの操作は
+    // 割り当て権限（checksheet.assign_worker）を持つアカウントだけに限定する
+    val canOperate by container.settings.canAssignFlow.collectAsState(initial = false)
     var tab by remember { mutableStateOf(InventoryTab.PROCESSED) }
 
-    LaunchedEffect(Unit) { vm.load() }
+    // 生産管理システム側の更新をタブレットにも反映するため、このタブが表示されている間
+    // だけ30秒おきに裏側で再取得する（一覧が既にあるときはスピナーを出さず静かに更新）。
+    // 初回表示時とタブに切り替わった瞬間にも即座に1回再取得する
+    AutoRefreshEffect(isActive = isActive, refreshImmediately = true) { vm.load() }
+    // このタブはHomeScreenの下部ナビゲーションバー付きScaffoldにネストされているため、
+    // 通常のSnackbarHostだとナビゲーションバーの裏に隠れて文字が見えなくなる。
+    // タブ内に固定表示するバナーにして、常に見える位置に出す。
     LaunchedEffect(vm.message) {
         vm.message?.let {
-            snackbar.showSnackbar(it)
+            kotlinx.coroutines.delay(4000)
             vm.message = null
         }
     }
 
     Scaffold(
-        snackbarHost = { SnackbarHost(snackbar) },
         topBar = {
             CenterAlignedTopAppBar(
                 title = { HeaderTitle("在庫") },
@@ -260,6 +273,14 @@ fun InventoryScreen(onLogout: () -> Unit = {}) {
                             text = { Text(t.label, fontWeight = FontWeight.Bold) },
                         )
                     }
+                }
+
+                vm.message?.let { msg ->
+                    InlineMessageBanner(
+                        message = msg,
+                        isError = vm.messageIsError,
+                        onDismiss = { vm.message = null },
+                    )
                 }
 
                 val listState = androidx.compose.foundation.lazy.rememberLazyListState()
@@ -324,6 +345,7 @@ fun InventoryScreen(onLogout: () -> Unit = {}) {
                                     items(vm.materials, key = { it.id }) { mi ->
                                         MaterialInventoryCard(
                                             material = mi,
+                                            canOperate = canOperate,
                                             candidates = vm.candidatesByMaterial[mi.id],
                                             candidatesLoading = mi.id in vm.candidatesLoading,
                                             onExpandAllocate = { vm.loadCandidates(mi.id) },
@@ -355,6 +377,37 @@ fun InventoryScreen(onLogout: () -> Unit = {}) {
                     )
                 }
             }
+        }
+    }
+}
+
+/**
+ * タブ内固定のメッセージバナー。この画面はHomeScreenの下部ナビゲーション付き
+ * Scaffoldにネストされているため、通常のSnackbarは隠れて見えなくなることがある。
+ */
+@Composable
+private fun InlineMessageBanner(message: String, isError: Boolean, onDismiss: () -> Unit) {
+    val bg = if (isError) Color(0xFFFEF2F2) else Color(0xFFECFDF5)
+    val border = if (isError) Color(0xFFFECACA) else Color(0xFFA7F3D0)
+    val fg = if (isError) Red500 else Color(0xFF065F46)
+
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 8.dp)
+            .clip(RoundedCornerShape(12.dp))
+            .background(bg)
+            .border(1.dp, border, RoundedCornerShape(12.dp))
+            .padding(horizontal = 14.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        if (isError) {
+            Icon(Icons.Filled.Warning, contentDescription = null, tint = fg, modifier = Modifier.size(18.dp))
+            Spacer(Modifier.width(8.dp))
+        }
+        Text(message, color = fg, fontWeight = FontWeight.SemiBold, fontSize = 14.sp, modifier = Modifier.weight(1f))
+        IconButton(onClick = onDismiss, modifier = Modifier.size(28.dp)) {
+            Icon(Icons.Filled.Close, contentDescription = "閉じる", tint = fg, modifier = Modifier.size(16.dp))
         }
     }
 }
@@ -391,6 +444,7 @@ private enum class MaterialPanel { RESTOCK, ALLOCATE, HISTORY }
 @Composable
 private fun MaterialInventoryCard(
     material: MaterialInventoryDto,
+    canOperate: Boolean,
     candidates: List<MaterialCandidateDto>?,
     candidatesLoading: Boolean,
     onExpandAllocate: () -> Unit,
@@ -469,9 +523,11 @@ private fun MaterialInventoryCard(
 
             Spacer(Modifier.height(12.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedButton(onClick = { toggle(MaterialPanel.RESTOCK) }) { Text("入荷", fontWeight = FontWeight.Bold) }
-                if (effective > 0) {
-                    OutlinedButton(onClick = { toggle(MaterialPanel.ALLOCATE) }) { Text("引当", fontWeight = FontWeight.Bold) }
+                if (canOperate) {
+                    OutlinedButton(onClick = { toggle(MaterialPanel.RESTOCK) }) { Text("入荷", fontWeight = FontWeight.Bold) }
+                    if (effective > 0) {
+                        OutlinedButton(onClick = { toggle(MaterialPanel.ALLOCATE) }) { Text("引当", fontWeight = FontWeight.Bold) }
+                    }
                 }
                 OutlinedButton(onClick = { toggle(MaterialPanel.HISTORY) }) { Text("履歴", fontWeight = FontWeight.Bold) }
             }
@@ -496,6 +552,7 @@ private fun MaterialInventoryCard(
                     HistoryPanel(
                         allocations = material.allocations,
                         transactions = material.transactions,
+                        canOperate = canOperate,
                         onDeallocate = onDeallocate,
                         onDeleteTransaction = onDeleteTransaction,
                     )
@@ -725,6 +782,7 @@ private data class HistoryRow(
 private fun HistoryPanel(
     allocations: List<MaterialAllocationDto>,
     transactions: List<MaterialTransactionDto>,
+    canOperate: Boolean,
     onDeallocate: (allocationId: Int) -> Unit,
     onDeleteTransaction: (transactionId: Int) -> Unit,
 ) {
@@ -752,7 +810,11 @@ private fun HistoryPanel(
         } else {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 rows.forEach { row ->
-                    HistoryRowView(row = row, onCancelClick = { confirmRow = row })
+                    HistoryRowView(
+                        row = row,
+                        canOperate = canOperate,
+                        onCancelClick = { confirmRow = row },
+                    )
                 }
             }
         }
@@ -789,7 +851,7 @@ private fun HistoryPanel(
 }
 
 @Composable
-private fun HistoryRowView(row: HistoryRow, onCancelClick: () -> Unit) {
+private fun HistoryRowView(row: HistoryRow, canOperate: Boolean, onCancelClick: () -> Unit) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -823,8 +885,10 @@ private fun HistoryRowView(row: HistoryRow, onCancelClick: () -> Unit) {
             }
             row.note?.takeIf { it.isNotBlank() }?.let { Text(it, fontSize = 12.sp, color = Color(0xFF9CA3AF)) }
         }
-        OutlinedButton(onClick = onCancelClick, colors = androidx.compose.material3.ButtonDefaults.outlinedButtonColors(contentColor = Red500)) {
-            Text("取り消し", fontSize = 12.sp)
+        if (canOperate) {
+            OutlinedButton(onClick = onCancelClick, colors = androidx.compose.material3.ButtonDefaults.outlinedButtonColors(contentColor = Red500)) {
+                Text("取り消し", fontSize = 12.sp)
+            }
         }
     }
 }
