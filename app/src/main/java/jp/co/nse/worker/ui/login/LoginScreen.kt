@@ -1,5 +1,6 @@
 package jp.co.nse.worker.ui.login
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -9,9 +10,11 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -19,17 +22,20 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.ChevronRight
+import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -43,14 +49,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.shadow
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.drawscope.DrawScope
-import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontFamily
@@ -128,10 +129,8 @@ class LoginViewModel(private val auth: AuthRepository) : ViewModel() {
             loginError = null
             when (val result = auth.loginById(user.id, employeeNumber)) {
                 is ApiResult.Success -> onSuccess(result.data.name)
-                is ApiResult.Failure -> {
-                    loginError = result.message
-                    employeeNumber = ""
-                }
+                // ログイン失敗時も入力済みの番号は消さない（「C」キーでの消去はユーザーに委ねる）
+                is ApiResult.Failure -> loginError = result.message
             }
             loginLoading = false
         }
@@ -142,7 +141,6 @@ class LoginViewModel(private val auth: AuthRepository) : ViewModel() {
 fun LoginScreen(
     onLoggedIn: (userName: String) -> Unit,
 ) {
-    val feedback = rememberClickFeedback()
     val context = androidx.compose.ui.platform.LocalContext.current
     val container = context.appContainer
     val versionLabel = remember {
@@ -165,142 +163,229 @@ fun LoginScreen(
     LaunchedEffect(Unit) { vm.loadUsers() }
 
     val bgBrush = Brush.linearGradient(listOf(Green50, Color.White, Green50))
+    val isLandscape = androidx.compose.ui.platform.LocalConfiguration.current.orientation ==
+        android.content.res.Configuration.ORIENTATION_LANDSCAPE
 
     Surface(modifier = Modifier.fillMaxSize()) {
         Box(
             modifier = Modifier.fillMaxSize().background(bgBrush),
             contentAlignment = Alignment.TopCenter,
         ) {
-            Column(
-                modifier = Modifier
-                    .widthIn(max = 760.dp)
-                    .fillMaxWidth()
-                    .padding(horizontal = 24.dp, vertical = 36.dp),
-                horizontalAlignment = Alignment.CenterHorizontally,
-            ) {
-                Spacer(Modifier.height(4.dp))
-                // 起動時のスプラッシュアニメーションと同じロゴ・キャッチコピーを、
-                // アニメーション終了後もそのままこの画面の見出しとして表示し続ける
-                Image(
-                    painter = painterResource(id = R.drawable.nse_logo),
-                    contentDescription = "NSエンジニアリング ロゴ",
-                    contentScale = ContentScale.Fit,
+            if (isLandscape) {
+                // 横向きは3カラム構成にする：ブランド／アカウント（内部スクロール）／テンキーを
+                // それぞれ画面の高さいっぱいに使い、縦方向のスクロールが要らないようにする
+                Row(
                     modifier = Modifier
-                        .width(190.dp)
-                        .height(190.dp * (227f / 600f)),
-                )
-                Spacer(Modifier.height(10.dp))
-                Box(
-                    modifier = Modifier
-                        .height(3.dp)
-                        .width(64.dp)
-                        .background(Green600),
-                )
-                Spacer(Modifier.height(12.dp))
-                Text(
-                    "NSE生産管理システム",
-                    fontWeight = FontWeight.Black,
-                    fontSize = 26.sp,
-                    color = Gray800,
-                    textAlign = TextAlign.Center,
-                )
-                Text(
-                    "一歩先を行く技術力",
-                    fontSize = 13.sp,
-                    color = Gray500,
-                    letterSpacing = 1.sp,
-                    modifier = Modifier.padding(top = 4.dp),
-                )
-                Text(
-                    "ログインするアカウントを選んでください",
-                    fontSize = 15.sp,
-                    color = Gray500,
-                    modifier = Modifier.padding(top = 14.dp),
-                )
-                Spacer(Modifier.height(28.dp))
-
-                // アカウントパネル
-                Surface(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .shadow(12.dp, RoundedCornerShape(24.dp), clip = false),
-                    shape = RoundedCornerShape(24.dp),
-                    color = Color.White,
+                        .fillMaxSize()
+                        .padding(horizontal = 28.dp, vertical = 20.dp),
+                    horizontalArrangement = Arrangement.spacedBy(24.dp),
                 ) {
-                    Column(modifier = Modifier.padding(20.dp)) {
-                        Text(
-                            "アカウント",
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = Gray500,
-                            letterSpacing = 1.5.sp,
-                        )
-                        Spacer(Modifier.height(14.dp))
-                        when {
-                            vm.usersLoading && vm.users.isEmpty() -> Box(
-                                modifier = Modifier.fillMaxWidth().padding(vertical = 48.dp),
-                                contentAlignment = Alignment.Center,
-                            ) { CircularProgressIndicator(color = Green600) }
-
-                            vm.usersError != null && vm.users.isEmpty() -> Column(
-                                modifier = Modifier.fillMaxWidth().padding(vertical = 32.dp),
-                                horizontalAlignment = Alignment.CenterHorizontally,
-                            ) {
-                                Text(vm.usersError ?: "", color = Color(0xFFB91C1C), textAlign = TextAlign.Center)
-                                Spacer(Modifier.height(16.dp))
-                                TextButton(onClick = { feedback(); vm.loadUsers() }) {
-                                    Text("再読み込み", color = Green700, fontWeight = FontWeight.Bold)
-                                }
-                            }
-
-                            vm.users.isEmpty() -> Box(
-                                modifier = Modifier.fillMaxWidth().padding(vertical = 48.dp),
-                                contentAlignment = Alignment.Center,
-                            ) { Text("利用可能なアカウントがありません。", color = Gray500) }
-
-                            else -> LazyVerticalGrid(
-                                columns = GridCells.Adaptive(minSize = 200.dp),
-                                horizontalArrangement = Arrangement.spacedBy(12.dp),
-                                verticalArrangement = Arrangement.spacedBy(12.dp),
-                                modifier = Modifier.fillMaxWidth(),
-                            ) {
-                                items(vm.users, key = { it.id }) { user ->
-                                    AccountTile(
-                                        user = user,
-                                        selected = vm.selectedUser?.id == user.id,
-                                        onClick = { vm.select(user) },
-                                    )
-                                }
+                    Column(
+                        modifier = Modifier.width(200.dp).fillMaxHeight(),
+                        verticalArrangement = Arrangement.SpaceBetween,
+                    ) {
+                        BrandHeader(compact = true)
+                        Column {
+                            Text(
+                                "NSエンジニアリング　生産管理システム",
+                                fontSize = 11.sp,
+                                color = Gray500.copy(alpha = 0.7f),
+                            )
+                            if (versionLabel.isNotBlank()) {
+                                Spacer(Modifier.height(2.dp))
+                                Text(versionLabel, fontSize = 11.sp, color = Gray500.copy(alpha = 0.6f))
                             }
                         }
                     }
+                    Column(modifier = Modifier.weight(1f).fillMaxHeight()) {
+                        AccountPanel(vm, fillHeight = true)
+                    }
+                    Column(
+                        modifier = Modifier.width(360.dp).fillMaxHeight(),
+                        verticalArrangement = Arrangement.Center,
+                    ) {
+                        EmployeeNumberPanel(
+                            user = vm.selectedUser,
+                            employeeNumber = vm.employeeNumber,
+                            onEmployeeNumberChange = { vm.employeeNumber = it },
+                            loading = vm.loginLoading,
+                            error = vm.loginError,
+                            onConfirm = { vm.login(onLoggedIn) },
+                            onChangeAccount = { vm.cancelSelection() },
+                        )
+                    }
                 }
-
-                Spacer(Modifier.height(20.dp))
-                Text(
-                    "NSエンジニアリング　生産管理システム",
-                    fontSize = 11.sp,
-                    color = Gray500.copy(alpha = 0.7f),
-                )
-                if (versionLabel.isNotBlank()) {
-                    Spacer(Modifier.height(2.dp))
-                    Text(versionLabel, fontSize = 11.sp, color = Gray500.copy(alpha = 0.6f))
+            } else {
+                Column(
+                    modifier = Modifier
+                        .widthIn(max = 760.dp)
+                        .fillMaxWidth()
+                        .verticalScroll(rememberScrollState())
+                        .padding(horizontal = 24.dp, vertical = 36.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                ) {
+                    BrandHeader(compact = false)
+                    Spacer(Modifier.height(28.dp))
+                    AccountPanel(vm)
+                    Spacer(Modifier.height(20.dp))
+                    EmployeeNumberPanel(
+                        user = vm.selectedUser,
+                        employeeNumber = vm.employeeNumber,
+                        onEmployeeNumberChange = { vm.employeeNumber = it },
+                        loading = vm.loginLoading,
+                        error = vm.loginError,
+                        onConfirm = { vm.login(onLoggedIn) },
+                        onChangeAccount = { vm.cancelSelection() },
+                    )
+                    Spacer(Modifier.height(20.dp))
+                    Text(
+                        "NSエンジニアリング　生産管理システム",
+                        fontSize = 11.sp,
+                        color = Gray500.copy(alpha = 0.7f),
+                    )
+                    if (versionLabel.isNotBlank()) {
+                        Spacer(Modifier.height(2.dp))
+                        Text(versionLabel, fontSize = 11.sp, color = Gray500.copy(alpha = 0.6f))
+                    }
                 }
             }
         }
     }
+}
 
-    // 社員番号入力モーダル
-    vm.selectedUser?.let { user ->
-        EmployeeNumberDialog(
-            user = user,
-            employeeNumber = vm.employeeNumber,
-            onEmployeeNumberChange = { vm.employeeNumber = it },
-            loading = vm.loginLoading,
-            error = vm.loginError,
-            onConfirm = { vm.login(onLoggedIn) },
-            onDismiss = { vm.cancelSelection() },
+/**
+ * ロゴ・見出し・キャッチコピー。縦向きは中央揃えのフル表示、
+ * 横向き（compact）は左カラムに収まるようロゴを縮小し左寄せにする。
+ */
+@Composable
+private fun BrandHeader(compact: Boolean) {
+    val horizontalAlignment = if (compact) Alignment.Start else Alignment.CenterHorizontally
+    val textAlign = if (compact) TextAlign.Start else TextAlign.Center
+    val logoSize = if (compact) 130.dp else 190.dp
+
+    Column(horizontalAlignment = horizontalAlignment) {
+        if (!compact) Spacer(Modifier.height(4.dp))
+        // 起動時のスプラッシュアニメーションと同じロゴ・キャッチコピーを、
+        // アニメーション終了後もそのままこの画面の見出しとして表示し続ける
+        Image(
+            painter = painterResource(id = R.drawable.nse_logo),
+            contentDescription = "NSエンジニアリング ロゴ",
+            contentScale = ContentScale.Fit,
+            modifier = Modifier
+                .width(logoSize)
+                .height(logoSize * (227f / 600f)),
         )
+        Spacer(Modifier.height(10.dp))
+        Box(
+            modifier = Modifier
+                .height(3.dp)
+                .width(64.dp)
+                .background(Green600),
+        )
+        Spacer(Modifier.height(12.dp))
+        Text(
+            "NSE生産管理システム",
+            fontWeight = FontWeight.Black,
+            fontSize = if (compact) 20.sp else 26.sp,
+            color = Gray800,
+            textAlign = textAlign,
+        )
+        Text(
+            "一歩先を行く技術力",
+            fontSize = 13.sp,
+            color = Gray500,
+            letterSpacing = 1.sp,
+            textAlign = textAlign,
+            modifier = Modifier.padding(top = 4.dp),
+        )
+        Text(
+            "ログインするアカウントを選んでください",
+            fontSize = 15.sp,
+            color = Gray500,
+            textAlign = textAlign,
+            modifier = Modifier.padding(top = 14.dp),
+        )
+    }
+}
+
+/**
+ * アカウント選択パネル。[fillHeight]がfalse（縦向き）の場合はアカウント数が増えても
+ * パネルの高さが一定になるよう上限を設けて内部だけスクロールする。[fillHeight]がtrue
+ * （横向きの3カラムレイアウト時）の場合は与えられた高さいっぱいに広がり、一覧部分だけが
+ * 内部スクロールする。
+ */
+@Composable
+private fun AccountPanel(vm: LoginViewModel, fillHeight: Boolean = false) {
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .then(if (fillHeight) Modifier.fillMaxHeight() else Modifier)
+            .shadow(12.dp, RoundedCornerShape(24.dp), clip = false),
+        shape = RoundedCornerShape(24.dp),
+        color = Color.White,
+    ) {
+        Column(
+            modifier = Modifier
+                .padding(20.dp)
+                .then(if (fillHeight) Modifier.fillMaxHeight() else Modifier),
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    "アカウント",
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = Gray500,
+                    letterSpacing = 1.5.sp,
+                )
+                if (vm.users.isNotEmpty()) {
+                    Text("現場 ${vm.users.size}名中", fontSize = 12.sp, color = Gray500)
+                }
+            }
+            Spacer(Modifier.height(14.dp))
+            when {
+                vm.usersLoading && vm.users.isEmpty() -> Box(
+                    modifier = Modifier.fillMaxWidth().padding(vertical = 48.dp),
+                    contentAlignment = Alignment.Center,
+                ) { CircularProgressIndicator(color = Green600) }
+
+                vm.usersError != null && vm.users.isEmpty() -> Column(
+                    modifier = Modifier.fillMaxWidth().padding(vertical = 32.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                ) {
+                    Text(vm.usersError ?: "", color = MaterialTheme.colorScheme.error, textAlign = TextAlign.Center)
+                    Spacer(Modifier.height(16.dp))
+                    TextButton(onClick = { vm.loadUsers() }) {
+                        Text("再読み込み", color = Green700, fontWeight = FontWeight.Bold)
+                    }
+                }
+
+                vm.users.isEmpty() -> Box(
+                    modifier = Modifier.fillMaxWidth().padding(vertical = 48.dp),
+                    contentAlignment = Alignment.Center,
+                ) { Text("利用可能なアカウントがありません。", color = Gray500) }
+
+                else -> LazyVerticalGrid(
+                    columns = GridCells.Adaptive(minSize = 200.dp),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                    modifier = Modifier.fillMaxWidth().let {
+                        if (fillHeight) it.weight(1f) else it.heightIn(max = 280.dp)
+                    },
+                ) {
+                    items(vm.users, key = { it.id }) { user ->
+                        AccountTile(
+                            user = user,
+                            selected = vm.selectedUser?.id == user.id,
+                            onClick = { vm.select(user) },
+                        )
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -356,180 +441,166 @@ private fun AccountTile(user: LoginUserDto, selected: Boolean, onClick: () -> Un
 }
 
 /**
- * 社員番号入力パネル（常時表示）。
- * アカウント未選択時はテンキーを無効化した状態で先に表示しておく。
+ * 社員番号入力パネル（常設）。
+ * アカウント未選択時はプレースホルダ文言のみ表示し、テンキーは無効化・減光した状態で
+ * あらかじめ表示しておく。アカウント一覧側は Modifier.heightIn で高さの上限を設けているため、
+ * アカウント数が増えてもこのパネルの表示位置は変わらない。
  */
 @Composable
-private fun EmployeeNumberDialog(
-    user: LoginUserDto,
+private fun EmployeeNumberPanel(
+    user: LoginUserDto?,
     employeeNumber: String,
     onEmployeeNumberChange: (String) -> Unit,
     loading: Boolean,
     error: String?,
     onConfirm: () -> Unit,
-    onDismiss: () -> Unit,
+    onChangeAccount: () -> Unit,
 ) {
     val feedback = rememberClickFeedback()
     var numberVisible by remember { mutableStateOf(false) }
-    val avatarColor = parseHexColor(user.color, Green600)
+    val enabled = user != null && !loading
 
-    AlertDialog(
-        onDismissRequest = { if (!loading) onDismiss() },
-        title = {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Box(
-                    modifier = Modifier.size(40.dp).background(avatarColor, CircleShape),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Text(
-                        user.name.take(1),
-                        color = contrastTextColor(avatarColor),
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 18.sp,
-                    )
-                }
-                Spacer(Modifier.size(12.dp))
-                Text(user.name, fontWeight = FontWeight.Bold, fontSize = 18.sp)
-            }
-        },
-        text = {
-            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                Text(
-                    "社員番号を入力してください。",
-                    fontSize = 14.sp,
-                    color = Color(0xFF6B7280),
-                    modifier = Modifier.align(Alignment.Start),
-                )
-                Spacer(Modifier.height(12.dp))
-
-                // LCD風表示
-                Row(
-                    modifier = Modifier
-                        .width(KeypadGridWidth)
-                        .height(52.dp)
-                        .shadow(2.dp, RoundedCornerShape(8.dp))
-                        .background(Brush.verticalGradient(listOf(LcdBgLight, LcdBgDark)), RoundedCornerShape(8.dp))
-                        .border(2.dp, KeypadBezel, RoundedCornerShape(8.dp))
-                        .padding(horizontal = 14.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Text(
-                        text = (if (numberVisible) employeeNumber else "●".repeat(employeeNumber.length))
-                            .ifEmpty { "―" },
-                        fontSize = 24.sp,
-                        fontFamily = FontFamily.Monospace,
-                        fontWeight = FontWeight.Bold,
-                        color = LcdText,
-                        textAlign = TextAlign.End,
-                        maxLines = 1,
-                        modifier = Modifier.weight(1f),
-                    )
-                    Spacer(Modifier.width(4.dp))
-                    IconButton(
-                        onClick = { feedback(); numberVisible = !numberVisible },
-                        modifier = Modifier.size(28.dp),
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .shadow(12.dp, RoundedCornerShape(24.dp), clip = false),
+        shape = RoundedCornerShape(24.dp),
+        color = Color.White,
+    ) {
+        Column(
+            modifier = Modifier.padding(20.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                if (user != null) {
+                    val avatarColor = parseHexColor(user.color, Green600)
+                    Box(
+                        modifier = Modifier.size(40.dp).background(avatarColor, CircleShape),
+                        contentAlignment = Alignment.Center,
                     ) {
-                        Icon(
-                            imageVector = if (numberVisible) Icons.Filled.VisibilityOff else Icons.Filled.Visibility,
-                            contentDescription = if (numberVisible) "非表示" else "表示",
-                            tint = LcdText,
-                            modifier = Modifier.size(18.dp),
+                        Text(
+                            user.name.take(1),
+                            color = contrastTextColor(avatarColor),
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 18.sp,
                         )
                     }
-                }
-
-                error?.let {
+                    Spacer(Modifier.size(12.dp))
+                    Text(user.name, fontWeight = FontWeight.Bold, fontSize = 18.sp, color = Gray800, modifier = Modifier.weight(1f))
+                    TextButton(onClick = { feedback(); onChangeAccount() }, enabled = !loading) {
+                        Text("アカウントを変更", color = Gray500, fontSize = 13.sp)
+                    }
+                } else {
+                    Box(
+                        modifier = Modifier.size(40.dp).background(Color(0xFFE5E7EB), CircleShape),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Icon(Icons.Filled.Person, contentDescription = null, tint = Color(0xFF9CA3AF), modifier = Modifier.size(22.dp))
+                    }
+                    Spacer(Modifier.size(12.dp))
                     Text(
-                        it,
-                        color = Color(0xFFB91C1C),
-                        fontSize = 13.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        modifier = Modifier.widthIn(max = KeypadGridWidth).padding(top = 10.dp),
-                        textAlign = TextAlign.Center,
+                        "上のアカウントを選ぶと社員番号を入力できます",
+                        fontSize = 14.sp,
+                        color = Gray500,
+                        modifier = Modifier.weight(1f),
                     )
                 }
-
-                Spacer(Modifier.height(16.dp))
-                ClassicNumericKeypad(
-                    value = employeeNumber,
-                    onValueChange = onEmployeeNumberChange,
-                    enabled = !loading,
-                    onConfirm = onConfirm,
-                    confirmEnabled = employeeNumber.isNotBlank() && !loading,
-                    confirmLoading = loading,
-                )
             }
-        },
-        confirmButton = {},
-        dismissButton = {
-            TextButton(onClick = { feedback(); onDismiss() }, enabled = !loading) {
-                Text("キャンセル", color = Color(0xFF6B7280))
+
+            Spacer(Modifier.height(16.dp))
+
+            // 横向きなど幅が狭い場合でもテンキーが画面からはみ出さないよう、
+            // 実際に使える幅に応じてキーサイズを決める（広い場合は既定サイズを上限にする）
+            androidx.compose.foundation.layout.BoxWithConstraints(Modifier.fillMaxWidth()) {
+                val keySpacing = 12.dp
+                val gridWidth = maxWidth.coerceAtMost(MaxKeypadGridWidth)
+                val keyWidth = ((gridWidth - keySpacing * 2) / 3).coerceAtLeast(MinKeypadKeyWidth)
+                val keyHeight = keyWidth * 0.74f
+
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    modifier = Modifier.fillMaxWidth().alpha(if (user != null) 1f else 0.45f),
+                ) {
+                    // LCD風の入力値表示
+                    Row(
+                        modifier = Modifier
+                            .width(gridWidth)
+                            .height(keyHeight)
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(Color(0xFFF3F4F6))
+                            .border(1.dp, Color(0xFFE5E7EB), RoundedCornerShape(8.dp))
+                            .padding(horizontal = 14.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(
+                            text = (if (numberVisible) employeeNumber else "●".repeat(employeeNumber.length))
+                                .ifEmpty { "―" },
+                            fontSize = 26.sp,
+                            fontFamily = FontFamily.Monospace,
+                            fontWeight = FontWeight.Bold,
+                            color = Gray800,
+                            textAlign = TextAlign.End,
+                            maxLines = 1,
+                            modifier = Modifier.weight(1f),
+                        )
+                        Spacer(Modifier.width(4.dp))
+                        IconButton(
+                            onClick = { feedback(); numberVisible = !numberVisible },
+                            enabled = enabled,
+                            modifier = Modifier.size(28.dp),
+                        ) {
+                            Icon(
+                                imageVector = if (numberVisible) Icons.Filled.VisibilityOff else Icons.Filled.Visibility,
+                                contentDescription = if (numberVisible) "非表示" else "表示",
+                                tint = Gray500,
+                                modifier = Modifier.size(18.dp),
+                            )
+                        }
+                    }
+
+                    error?.let {
+                        Text(
+                            it,
+                            color = MaterialTheme.colorScheme.error,
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            modifier = Modifier.widthIn(max = gridWidth).padding(top = 10.dp),
+                            textAlign = TextAlign.Center,
+                        )
+                    }
+
+                    Spacer(Modifier.height(16.dp))
+                    ClassicNumericKeypad(
+                        value = employeeNumber,
+                        onValueChange = onEmployeeNumberChange,
+                        enabled = enabled,
+                        onConfirm = onConfirm,
+                        confirmEnabled = user != null && employeeNumber.isNotBlank() && !loading,
+                        confirmLoading = loading,
+                        keyWidth = keyWidth,
+                        keyHeight = keyHeight,
+                        keySpacing = keySpacing,
+                        gridWidth = gridWidth,
+                    )
+                }
             }
-        },
-    )
-}
-
-// ===== クラシックテンキー（アイボリー×LCD風・わんこ柄） =====
-
-private val LcdBgLight = Color(0xFFB7C4A6)
-private val LcdBgDark = Color(0xFF9AA98A)
-private val LcdText = Color(0xFF1F2A1D)
-private val KeypadBezel = Color(0xFFAFA184)
-private val KeypadIvoryTop = Color(0xFFFBF6EA)
-private val KeypadIvoryBottom = Color(0xFFE1D6BC)
-private val KeypadKeyText = Color(0xFF44403A)
-private val KeypadAccentTop = Color(0xFFC98A6E)
-private val KeypadAccentBottom = Color(0xFF9C5B45)
-private val PawPanelBase = Color(0xFFE7DAB8)
-private val PawPrintColor = Color(0xFFAF8F5E).copy(alpha = 0.35f)
-
-private val KeypadKeyWidth = 72.dp
-private val KeypadKeySpacing = 10.dp
-private val KeypadGridWidth = KeypadKeyWidth * 3 + KeypadKeySpacing * 2
-
-/** 1つの肉球（メインパッド＋指球4つ）を描画 */
-private fun DrawScope.drawPawPrint(center: Offset, scale: Float, rotationDeg: Float, color: Color) {
-    rotate(rotationDeg, pivot = center) {
-        drawOval(
-            color = color,
-            topLeft = Offset(center.x - 9f * scale, center.y - 5f * scale),
-            size = Size(18f * scale, 12f * scale),
-        )
-        val toeOffsets = listOf(-11f to -12f, -4f to -16f, 4f to -16f, 11f to -12f)
-        toeOffsets.forEach { (dx, dy) ->
-            drawOval(
-                color = color,
-                topLeft = Offset(
-                    center.x + dx * scale - 3.5f * scale,
-                    center.y + dy * scale - 4.5f * scale,
-                ),
-                size = Size(7f * scale, 9f * scale),
-            )
         }
     }
 }
 
-/** パネル全面に肉球柄を千鳥格子状にタイル配置 */
-private fun DrawScope.drawPawPattern(color: Color) {
-    val stepX = size.width / 3.2f
-    val stepY = size.height / 4.6f
-    val printScale = size.minDimension / 380f
-    var row = 0
-    var y = -stepY / 2f
-    while (y < size.height + stepY) {
-        val rowOffset = if (row % 2 == 0) 0f else stepX / 2f
-        var x = rowOffset - stepX / 2f
-        var col = 0
-        while (x < size.width + stepX) {
-            val rotation = ((row * 37 + col * 53) % 50 - 25).toFloat()
-            drawPawPrint(Offset(x, y), scale = printScale, rotationDeg = rotation, color = color)
-            x += stepX
-            col++
-        }
-        y += stepY
-        row++
-    }
-}
+// ===== テンキー（他画面と統一したアクセントカラー） =====
+
+/** 十分に幅がある場合の既定サイズ（この大きさを上限に、狭い画面では縮小する） */
+private val MaxKeypadGridWidth = 300.dp
+
+/** どれだけ幅が狭くても、タップしやすさを保つための最小キー幅 */
+private val MinKeypadKeyWidth = 64.dp
+
+private val KeypadKeyBorder = Color(0xFFE5E7EB)
+private val KeypadActionBorder = Color(0xFFBBF7D0)
 
 @Composable
 private fun ClassicNumericKeypad(
@@ -539,6 +610,10 @@ private fun ClassicNumericKeypad(
     onConfirm: () -> Unit,
     confirmEnabled: Boolean,
     confirmLoading: Boolean,
+    keyWidth: androidx.compose.ui.unit.Dp,
+    keyHeight: androidx.compose.ui.unit.Dp,
+    keySpacing: androidx.compose.ui.unit.Dp,
+    gridWidth: androidx.compose.ui.unit.Dp,
     maxLength: Int = 20,
 ) {
     val rows = listOf(
@@ -547,89 +622,82 @@ private fun ClassicNumericKeypad(
         listOf("7", "8", "9"),
         listOf("C", "0", "⌫"),
     )
-    Box(
-        modifier = Modifier
-            .shadow(6.dp, RoundedCornerShape(20.dp), clip = false)
-            .clip(RoundedCornerShape(20.dp))
-            .drawBehind {
-                drawRect(PawPanelBase)
-                drawPawPattern(PawPrintColor)
-            }
-            .border(1.dp, KeypadBezel, RoundedCornerShape(20.dp)),
-    ) {
-        Column(
-            modifier = Modifier.padding(14.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp),
-        ) {
-            rows.forEach { row ->
-                Row(horizontalArrangement = Arrangement.spacedBy(KeypadKeySpacing)) {
-                    row.forEach { key ->
-                        KeypadKey(
-                            label = key,
-                            enabled = enabled,
-                            onClick = {
-                                when (key) {
-                                    "C" -> onValueChange("")
-                                    "⌫" -> onValueChange(value.dropLast(1))
-                                    else -> if (value.length < maxLength) onValueChange(value + key)
-                                }
-                            },
-                        )
-                    }
+    Column(verticalArrangement = Arrangement.spacedBy(keySpacing)) {
+        rows.forEach { row ->
+            Row(horizontalArrangement = Arrangement.spacedBy(keySpacing)) {
+                row.forEach { key ->
+                    KeypadKey(
+                        label = key,
+                        enabled = enabled,
+                        keyWidth = keyWidth,
+                        keyHeight = keyHeight,
+                        onClick = {
+                            when (key) {
+                                "C" -> onValueChange("")
+                                "⌫" -> onValueChange(value.dropLast(1))
+                                else -> if (value.length < maxLength) onValueChange(value + key)
+                            }
+                        },
+                    )
                 }
             }
-            ConfirmKey(enabled = confirmEnabled, loading = confirmLoading, onClick = onConfirm)
         }
+        ConfirmKey(enabled = confirmEnabled, loading = confirmLoading, onClick = onConfirm, gridWidth = gridWidth, keyHeight = keyHeight)
     }
 }
 
 /** テンキー内の「確定」キー（グリッド幅いっぱいの横長ボタン） */
 @Composable
-private fun ConfirmKey(enabled: Boolean, loading: Boolean, onClick: () -> Unit) {
+private fun ConfirmKey(
+    enabled: Boolean,
+    loading: Boolean,
+    onClick: () -> Unit,
+    gridWidth: androidx.compose.ui.unit.Dp,
+    keyHeight: androidx.compose.ui.unit.Dp,
+) {
     val feedback = rememberClickFeedback()
-    Box(
-        modifier = Modifier
-            .width(KeypadGridWidth)
-            .height(52.dp)
-            .shadow(3.dp, RoundedCornerShape(12.dp), clip = false)
-            .clip(RoundedCornerShape(12.dp))
-            .background(Brush.horizontalGradient(listOf(Green600, Green500)))
-            .border(1.dp, Green700, RoundedCornerShape(12.dp))
-            .clickable(enabled = enabled, onClick = { feedback(); onClick() })
-            .alpha(if (enabled) 1f else 0.5f),
-        contentAlignment = Alignment.Center,
+    Surface(
+        onClick = { feedback(); onClick() },
+        enabled = enabled,
+        modifier = Modifier.width(gridWidth).height(keyHeight),
+        shape = RoundedCornerShape(14.dp),
+        color = if (enabled) Green600 else Color(0xFFD1D5DB),
+        contentColor = Color.White,
+        shadowElevation = if (enabled) 3.dp else 0.dp,
     ) {
-        if (loading) {
-            CircularProgressIndicator(modifier = Modifier.size(22.dp), strokeWidth = 2.5.dp, color = Color.White)
-        } else {
-            Text("確定してログイン", fontSize = 17.sp, fontWeight = FontWeight.Bold, color = Color.White)
+        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            if (loading) {
+                CircularProgressIndicator(modifier = Modifier.size(26.dp), strokeWidth = 3.dp, color = Color.White)
+            } else {
+                Text("確定してログイン", fontSize = 19.sp, fontWeight = FontWeight.Bold, color = Color.White)
+            }
         }
     }
 }
 
 @Composable
-private fun KeypadKey(label: String, enabled: Boolean, onClick: () -> Unit) {
+private fun KeypadKey(
+    label: String,
+    enabled: Boolean,
+    keyWidth: androidx.compose.ui.unit.Dp,
+    keyHeight: androidx.compose.ui.unit.Dp,
+    onClick: () -> Unit,
+) {
     val feedback = rememberClickFeedback()
     val isAction = label == "C" || label == "⌫"
-    val gradient = Brush.verticalGradient(
-        if (isAction) listOf(KeypadAccentTop, KeypadAccentBottom) else listOf(KeypadIvoryTop, KeypadIvoryBottom)
-    )
-    Box(
-        modifier = Modifier
-            .size(width = KeypadKeyWidth, height = 52.dp)
-            .shadow(3.dp, RoundedCornerShape(12.dp), clip = false)
-            .clip(RoundedCornerShape(12.dp))
-            .background(gradient)
-            .border(1.dp, KeypadBezel, RoundedCornerShape(12.dp))
-            .clickable(enabled = enabled, onClick = { feedback(); onClick() }),
-        contentAlignment = Alignment.Center,
+    Surface(
+        onClick = { feedback(); onClick() },
+        enabled = enabled,
+        modifier = Modifier.size(width = keyWidth, height = keyHeight),
+        shape = RoundedCornerShape(14.dp),
+        color = if (isAction) Green50 else Color.White,
+        contentColor = if (isAction) Green700 else Gray800,
+        border = BorderStroke(1.dp, if (isAction) KeypadActionBorder else KeypadKeyBorder),
+        shadowElevation = 2.dp,
     ) {
-        Text(
-            label,
-            fontSize = 22.sp,
-            fontWeight = FontWeight.Bold,
-            color = if (isAction) Color.White else KeypadKeyText,
-        )
+        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            Text(label, fontSize = 28.sp, fontWeight = FontWeight.Bold)
+        }
     }
 }
 

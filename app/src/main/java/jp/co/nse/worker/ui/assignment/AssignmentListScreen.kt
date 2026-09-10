@@ -100,7 +100,7 @@ class AssignmentListViewModel(
     var overrideDates by mutableStateOf<Set<String>>(emptySet())
         private set
     var filter by mutableStateOf(DashboardFilter.ALL)
-    var statusFilter by mutableStateOf<String?>(null)
+    var statusFilters by mutableStateOf<Set<String>>(emptySet())
     var searchQuery by mutableStateOf("")
 
     fun load() {
@@ -160,8 +160,7 @@ class AssignmentListViewModel(
                 DashboardFilter.UNASSIGNED -> orders.filter { hasUnassigned(it) }
             }
             OrderListMode.ORDER_LIST -> {
-                val status = statusFilter
-                if (status == null) orders else orders.filter { it.status == status }
+                if (statusFilters.isEmpty()) orders else orders.filter { it.status in statusFilters }
             }
         }
         val query = searchQuery.trim()
@@ -178,9 +177,13 @@ class AssignmentListViewModel(
         filter = if (target == DashboardFilter.ALL || filter == target) DashboardFilter.ALL else target
     }
 
-    /** ステータスカードでの絞り込み。「すべて」＝null、同じステータスをもう一度押すと解除 */
-    fun selectStatusFilter(status: String?) {
-        statusFilter = if (status == null || statusFilter == status) null else status
+    /** ステータスカードでの複数選択絞り込み。「すべて」を押すと選択解除、ステータスは複数選択可（もう一度押すと解除） */
+    fun toggleStatusFilter(status: String?) {
+        statusFilters = when {
+            status == null -> emptySet()
+            status in statusFilters -> statusFilters - status
+            else -> statusFilters + status
+        }
     }
 }
 
@@ -278,8 +281,8 @@ fun AssignmentListScreen(
                             StatusFilterRow(
                                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
                                 orders = vm.orders,
-                                selectedStatus = vm.statusFilter,
-                                onSelect = { vm.selectStatusFilter(it) },
+                                selectedStatuses = vm.statusFilters,
+                                onSelect = { vm.toggleStatusFilter(it) },
                             )
                         }
                         if (mode == OrderListMode.ASSIGNMENT) {
@@ -438,27 +441,34 @@ private fun DashboardCard(
 }
 
 /**
- * 受注一覧（閲覧専用）のステータス絞り込み。実際に存在するステータスだけをカードで表示し、
- * タップすると絞り込み（もう一度押すと解除）。件数の多いカードは横スクロールで表示する。
+ * 受注一覧（閲覧専用）のステータス絞り込み。ステータスごとにカードで表示し、
+ * タップすると絞り込み（複数選択可、もう一度押すと解除）。画面幅に収まらない分は
+ * 横スクロールではなく折り返して次の行に表示する（縦向きでも一覧性を保つため）。
+ * 「待機」「請求済み」は受注一覧では意味を持たないステータスのため表示しない。
  */
+private val HiddenStatusFilterKeys = setOf("waiting", "billed")
+
 @Composable
+@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 private fun StatusFilterRow(
     modifier: Modifier = Modifier,
     orders: List<OrderAssignDto>,
-    selectedStatus: String?,
+    selectedStatuses: Set<String>,
     onSelect: (String?) -> Unit,
 ) {
     val counts = orders.groupingBy { it.status ?: "" }.eachCount()
-    val allStatuses = jp.co.nse.worker.ui.components.OrderStatus.styles.keys.toList()
-    Row(
-        modifier = modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+    val allStatuses = jp.co.nse.worker.ui.components.OrderStatus.styles.keys
+        .filter { it !in HiddenStatusFilterKeys }
+    androidx.compose.foundation.layout.FlowRow(
+        modifier = modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.spacedBy(10.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
         StatusFilterCard(
             label = "すべて",
             count = orders.size,
             color = Color(0xFF1F2937),
-            selected = selectedStatus == null,
+            selected = selectedStatuses.isEmpty(),
             onClick = { onSelect(null) },
         )
         allStatuses.forEach { status ->
@@ -467,7 +477,7 @@ private fun StatusFilterRow(
                 label = style.label,
                 count = counts[status] ?: 0,
                 color = style.text,
-                selected = selectedStatus == status,
+                selected = status in selectedStatuses,
                 onClick = { onSelect(status) },
             )
         }

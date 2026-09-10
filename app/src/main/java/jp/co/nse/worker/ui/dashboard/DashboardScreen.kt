@@ -68,6 +68,7 @@ import jp.co.nse.worker.util.DateUtil
 import jp.co.nse.worker.util.FlowerOfDay
 import jp.co.nse.worker.util.FlowerOfDayEntry
 import jp.co.nse.worker.util.rememberClickFeedback
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import java.time.LocalDate
 
@@ -81,6 +82,8 @@ class DashboardViewModel(
     private val workerRepo: WorkerRepository,
     private val managerRepo: ManagerRepository,
 ) : ViewModel() {
+    var loading by mutableStateOf(true)
+        private set
     var taskSummary by mutableStateOf(TaskSummary())
         private set
     var orderSummary by mutableStateOf<OrderSummary?>(null)
@@ -90,9 +93,11 @@ class DashboardViewModel(
 
     fun load(canAssign: Boolean, canViewShipping: Boolean) {
         viewModelScope.launch {
+            loading = true
             loadTaskSummary()
             if (canAssign) loadOrderSummary()
             if (canViewShipping) loadShippingSummary()
+            loading = false
         }
     }
 
@@ -176,7 +181,15 @@ fun DashboardScreen(
             initializer { DashboardViewModel(container.workerRepository, container.managerRepository) }
         },
     )
-    LaunchedEffect(canAssign, canViewShipping) { vm.load(canAssign, canViewShipping) }
+    // canAssign/canViewShippingは起動直後、DataStoreからの実際の値が届く前は
+    // 一瞬だけ初期値(false)を返す。これをそのままload()の引数にすると、
+    // 「一部カードが揃っていないダッシュボードが一瞬表示された直後にもう一度読み込み直す」
+    // という表示のちらつきが起きるため、初回は実際の値が確定してから一度だけ読み込む
+    LaunchedEffect(Unit) {
+        val initialCanAssign = container.settings.canAssignFlow.first()
+        val initialCanViewShipping = container.settings.canViewShippingFlow.first()
+        vm.load(initialCanAssign, initialCanViewShipping)
+    }
     // ログイン直後などまだポーリングが始まっていない場合でも、ダッシュボードでは
     // 未読通知を即座に表示できるようにする（開始済みなら何もしない）
     LaunchedEffect(Unit) {
@@ -215,21 +228,28 @@ fun DashboardScreen(
         },
     ) { padding ->
         Box(Modifier.fillMaxSize().padding(padding).background(MaterialTheme.colorScheme.background)) {
-            DashboardContent(
-                listState = listState,
-                userName = userName,
-                today = today,
-                flower = flower,
-                taskSummary = vm.taskSummary,
-                orderSummary = if (canAssign) vm.orderSummary else null,
-                shippingTodayCount = if (canViewShipping) vm.shippingTodayCount else null,
-                onContinue = onContinue,
-            )
-            ScrollToTopFab(
-                visible = listState.firstVisibleItemIndex > 0,
-                onClick = { scope.launch { listState.animateScrollToItem(0) } },
-                modifier = Modifier.align(Alignment.BottomEnd).padding(20.dp),
-            )
+            if (vm.loading) {
+                androidx.compose.material3.CircularProgressIndicator(
+                    modifier = Modifier.align(Alignment.Center),
+                    color = MaterialTheme.colorScheme.primary,
+                )
+            } else {
+                DashboardContent(
+                    listState = listState,
+                    userName = userName,
+                    today = today,
+                    flower = flower,
+                    taskSummary = vm.taskSummary,
+                    orderSummary = if (canAssign) vm.orderSummary else null,
+                    shippingTodayCount = if (canViewShipping) vm.shippingTodayCount else null,
+                    onContinue = onContinue,
+                )
+                ScrollToTopFab(
+                    visible = listState.firstVisibleItemIndex > 0,
+                    onClick = { scope.launch { listState.animateScrollToItem(0) } },
+                    modifier = Modifier.align(Alignment.BottomEnd).padding(20.dp),
+                )
+            }
         }
     }
 }
