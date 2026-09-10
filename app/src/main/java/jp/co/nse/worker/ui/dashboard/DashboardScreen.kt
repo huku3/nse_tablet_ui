@@ -62,6 +62,7 @@ import jp.co.nse.worker.ui.components.MyPageButton
 import jp.co.nse.worker.ui.components.NotificationBell
 import jp.co.nse.worker.ui.components.NotificationPreviewCard
 import jp.co.nse.worker.ui.components.ProcessAssignmentButton
+import jp.co.nse.worker.ui.components.ScrollToBottomFab
 import jp.co.nse.worker.ui.components.ScrollToTopFab
 import jp.co.nse.worker.ui.components.rememberCurrentUserName
 import jp.co.nse.worker.util.DateUtil
@@ -78,6 +79,9 @@ data class TaskSummary(val waiting: Int = 0, val inProgress: Int = 0, val comple
 /** ダッシュボードに表示する受注件数ショートカット（割り当て権限がある場合のみ取得） */
 data class OrderSummary(val today: Int = 0, val urgent: Int = 0, val unassigned: Int = 0)
 
+/** ダッシュボードに表示する日別の出荷予定件数（本日・翌日・翌々日） */
+data class ShippingDaySummary(val date: LocalDate, val count: Int)
+
 class DashboardViewModel(
     private val workerRepo: WorkerRepository,
     private val managerRepo: ManagerRepository,
@@ -88,7 +92,7 @@ class DashboardViewModel(
         private set
     var orderSummary by mutableStateOf<OrderSummary?>(null)
         private set
-    var shippingTodayCount by mutableStateOf<Int?>(null)
+    var shippingSummary by mutableStateOf<List<ShippingDaySummary>?>(null)
         private set
 
     fun load(canAssign: Boolean, canViewShipping: Boolean) {
@@ -140,14 +144,44 @@ class DashboardViewModel(
         )
     }
 
+    /**
+     * 直近3稼働日分の出荷予定件数。休日マスタ（休日・例外稼働日）を参照して、
+     * 土日・休日を除いた実際の稼働日だけを対象にする。「明日」「明後日」という表記は
+     * 休日等で実際の稼働日とずれて誤解を招くため、日付そのものをラベルに使う。
+     */
     private suspend fun loadShippingSummary() {
         val today = LocalDate.now()
-        when (val result = managerRepo.shippingCalendar(today.year, today.monthValue)) {
-            is ApiResult.Success -> {
-                val day = result.data?.weeks?.flatten()?.firstOrNull { DateUtil.parse(it.date) == today }
-                shippingTodayCount = day?.orders?.count { it.status != "shipped" && it.status != "billed" } ?: 0
+        val holidays = mutableSetOf<String>()
+        val overrides = mutableSetOf<String>()
+        setOf(DateUtil.fiscalYearOf(today), DateUtil.fiscalYearOf(today.plusDays(14))).forEach { fy ->
+            when (val result = managerRepo.holidayCalendar(fy)) {
+                is ApiResult.Success -> {
+                    holidays += result.data.holidays
+                    overrides += result.data.overrides
+                }
+                is ApiResult.Failure -> {}
             }
-            is ApiResult.Failure -> {}
+        }
+
+        val targetDates = mutableListOf<LocalDate>()
+        var cursor = today
+        while (targetDates.size < 3) {
+            if (DateUtil.isWorkingDay(cursor, holidays, overrides)) targetDates += cursor
+            cursor = cursor.plusDays(1)
+        }
+
+        val months = targetDates.map { java.time.YearMonth.from(it) }.distinct()
+        val days = mutableListOf<jp.co.nse.worker.data.ShippingCalendarDayDto>()
+        months.forEach { ym ->
+            when (val result = managerRepo.shippingCalendar(ym.year, ym.monthValue)) {
+                is ApiResult.Success -> result.data?.weeks?.flatten()?.let { days += it }
+                is ApiResult.Failure -> {}
+            }
+        }
+        shippingSummary = targetDates.map { date ->
+            val day = days.firstOrNull { DateUtil.parse(it.date) == date }
+            val count = day?.orders?.count { it.status != "shipped" && it.status != "billed" } ?: 0
+            ShippingDaySummary(date, count)
         }
     }
 }
@@ -241,13 +275,23 @@ fun DashboardScreen(
                     flower = flower,
                     taskSummary = vm.taskSummary,
                     orderSummary = if (canAssign) vm.orderSummary else null,
-                    shippingTodayCount = if (canViewShipping) vm.shippingTodayCount else null,
+                    shippingSummary = if (canViewShipping) vm.shippingSummary else null,
                     onContinue = onContinue,
                 )
                 ScrollToTopFab(
                     visible = listState.firstVisibleItemIndex > 0,
                     onClick = { scope.launch { listState.animateScrollToItem(0) } },
                     modifier = Modifier.align(Alignment.BottomEnd).padding(20.dp),
+                )
+                ScrollToBottomFab(
+                    visible = listState.canScrollForward,
+                    onClick = {
+                        scope.launch {
+                            val lastIndex = listState.layoutInfo.totalItemsCount - 1
+                            if (lastIndex >= 0) listState.animateScrollToItem(lastIndex)
+                        }
+                    },
+                    modifier = Modifier.align(Alignment.BottomStart).padding(20.dp),
                 )
             }
         }
@@ -262,7 +306,7 @@ private fun DashboardContent(
     flower: FlowerOfDayEntry?,
     taskSummary: TaskSummary,
     orderSummary: OrderSummary?,
-    shippingTodayCount: Int?,
+    shippingSummary: List<ShippingDaySummary>?,
     onContinue: () -> Unit,
 ) {
     val feedback = rememberClickFeedback()
@@ -276,9 +320,13 @@ private fun DashboardContent(
         item(key = "greeting") {
             Column {
                 Text(
-                    "こんにちは、${userName}さん",
+                    if (flower != null) {
+                        "こんにちは、${userName}さん。今日の花は${flower.name}、花言葉は${flower.meaning}です。"
+                    } else {
+                        "こんにちは、${userName}さん。"
+                    },
                     fontWeight = FontWeight.ExtraBold,
-                    fontSize = 26.sp,
+                    fontSize = 20.sp,
                     color = MaterialTheme.colorScheme.onSurface,
                 )
                 Text(
@@ -287,19 +335,6 @@ private fun DashboardContent(
                     color = Color(0xFF6B7280),
                     modifier = Modifier.padding(top = 2.dp),
                 )
-            }
-        }
-
-        if (flower != null) {
-            item(key = "flower") {
-                DashboardCard("今日の花") {
-                    Text(
-                        "${flower.name}「${flower.meaning}」",
-                        fontSize = 18.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onSurface,
-                    )
-                }
             }
         }
 
@@ -319,7 +354,7 @@ private fun DashboardContent(
 
         orderSummary?.let { summary ->
             item(key = "order-summary") {
-                DashboardCard("受注ダッシュボード") {
+                DashboardCard("受注状況") {
                     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                         StatBlock("本日納期", summary.today, Color(0xFFEA580C))
                         StatBlock("3営業日以内", summary.urgent, Color(0xFFDC2626))
@@ -329,10 +364,30 @@ private fun DashboardContent(
             }
         }
 
-        shippingTodayCount?.let { count ->
+        shippingSummary?.let { days ->
             item(key = "shipping-summary") {
-                DashboardCard("本日の出荷予定") {
-                    Text("$count 件", fontWeight = FontWeight.ExtraBold, fontSize = 24.sp, color = MaterialTheme.colorScheme.onSurface)
+                DashboardCard("出荷予定") {
+                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        days.forEach { day ->
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                            ) {
+                                Text(
+                                    DateUtil.shortLabel(day.date),
+                                    fontSize = 15.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = Color(0xFF6B7280),
+                                )
+                                Text(
+                                    "${day.count} 件",
+                                    fontWeight = FontWeight.ExtraBold,
+                                    fontSize = 18.sp,
+                                    color = MaterialTheme.colorScheme.onSurface,
+                                )
+                            }
+                        }
+                    }
                 }
             }
         }

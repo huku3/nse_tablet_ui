@@ -84,6 +84,7 @@ import jp.co.nse.worker.ui.components.NotificationBell
 import jp.co.nse.worker.ui.components.ProcessAssignmentButton
 import jp.co.nse.worker.ui.components.OrderStatusBadge
 import jp.co.nse.worker.ui.components.rememberCurrentUserName
+import jp.co.nse.worker.ui.components.ScrollToBottomFab
 import jp.co.nse.worker.ui.components.ScrollToTopFab
 import jp.co.nse.worker.ui.tasklist.StatusChip
 import jp.co.nse.worker.ui.tasklist.statusColor
@@ -376,6 +377,11 @@ private fun DetailContent(
                 visible = scroll.value > 0,
                 onClick = { scope.launch { scroll.animateScrollTo(0) } },
                 modifier = Modifier.align(Alignment.BottomEnd).padding(20.dp),
+            )
+            ScrollToBottomFab(
+                visible = scroll.value < scroll.maxValue,
+                onClick = { scope.launch { scroll.animateScrollTo(scroll.maxValue) } },
+                modifier = Modifier.align(Alignment.BottomStart).padding(20.dp),
             )
         }
     }

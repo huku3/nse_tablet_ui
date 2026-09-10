@@ -93,6 +93,7 @@ fun NotificationBell() {
             NotificationSheetContent(
                 notifications = center.notifications,
                 onMarkAllRead = { feedback(); center.markAllRead() },
+                onSwipeRead = { notification -> center.markRead(notification.id) },
                 onNotificationClick = { notification ->
                     feedback()
                     showSheet = false
@@ -154,6 +155,7 @@ fun NotificationPreviewCard(modifier: Modifier = Modifier) {
             NotificationSheetContent(
                 notifications = center.notifications,
                 onMarkAllRead = { feedback(); center.markAllRead() },
+                onSwipeRead = { notification -> center.markRead(notification.id) },
                 onNotificationClick = { notification ->
                     feedback()
                     showSheet = false
@@ -179,6 +181,7 @@ private fun notificationSummary(notification: NotificationDto): String {
 private fun NotificationSheetContent(
     notifications: List<NotificationDto>,
     onMarkAllRead: () -> Unit,
+    onSwipeRead: (NotificationDto) -> Unit,
     onNotificationClick: (NotificationDto) -> Unit,
 ) {
     Column(Modifier.padding(horizontal = 20.dp).padding(bottom = 24.dp)) {
@@ -197,6 +200,14 @@ private fun NotificationSheetContent(
                 }
             }
         }
+        if (notifications.isNotEmpty()) {
+            Text(
+                "スワイプで1件だけ既読にできます",
+                fontSize = 12.sp,
+                color = Color(0xFF9CA3AF),
+                modifier = Modifier.padding(top = 4.dp),
+            )
+        }
         Spacer(Modifier.height(12.dp))
 
         if (notifications.isEmpty()) {
@@ -214,15 +225,20 @@ private fun NotificationSheetContent(
                 verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
                 items(notifications, key = { it.id }) { notification ->
-                    NotificationRow(notification, onClick = { onNotificationClick(notification) })
+                    NotificationRow(
+                        notification,
+                        onClick = { onNotificationClick(notification) },
+                        onSwipeRead = { onSwipeRead(notification) },
+                    )
                 }
             }
         }
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun NotificationRow(notification: NotificationDto, onClick: () -> Unit) {
+private fun NotificationRow(notification: NotificationDto, onClick: () -> Unit, onSwipeRead: () -> Unit) {
     val data = notification.data
     val orderLabel = data.order_id?.let { "No.$it" } ?: (data.part_name ?: "受注")
     val (icon, iconColor, title) = when (data.type) {
@@ -245,31 +261,58 @@ private fun NotificationRow(notification: NotificationDto, onClick: () -> Unit) 
         }
     }
 
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(12.dp))
-            .background(Color(0xFFF9FAFB))
-            .clickable(onClick = onClick)
-            .padding(12.dp),
-        verticalAlignment = Alignment.Top,
+    val dismissState = androidx.compose.material3.rememberSwipeToDismissBoxState(
+        confirmValueChange = { value ->
+            if (value == androidx.compose.material3.SwipeToDismissBoxValue.EndToStart) {
+                onSwipeRead()
+            }
+            true
+        },
+    )
+
+    androidx.compose.material3.SwipeToDismissBox(
+        state = dismissState,
+        enableDismissFromStartToEnd = false,
+        enableDismissFromEndToStart = true,
+        backgroundContent = {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(Green600)
+                    .padding(horizontal = 20.dp),
+                contentAlignment = Alignment.CenterEnd,
+            ) {
+                Text("既読", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 15.sp)
+            }
+        },
     ) {
-        Box(
-            modifier = Modifier.clip(CircleShape).background(iconColor.copy(alpha = 0.12f)).padding(8.dp),
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(12.dp))
+                .background(Color(0xFFF9FAFB))
+                .clickable(onClick = onClick)
+                .padding(12.dp),
+            verticalAlignment = Alignment.Top,
         ) {
-            Icon(icon, contentDescription = null, tint = iconColor, modifier = Modifier.padding(0.dp))
-        }
-        Spacer(Modifier.width(10.dp))
-        Column(Modifier.weight(1f)) {
-            Text(title, fontWeight = FontWeight.Bold, fontSize = 14.sp)
-            if (subtitle.isNotEmpty()) {
-                Text(subtitle, color = Color(0xFF6B7280), fontSize = 13.sp)
+            Box(
+                modifier = Modifier.clip(CircleShape).background(iconColor.copy(alpha = 0.12f)).padding(8.dp),
+            ) {
+                Icon(icon, contentDescription = null, tint = iconColor, modifier = Modifier.padding(0.dp))
             }
-            data.reported_by?.let {
-                Text("報告者: $it", color = Color(0xFF9CA3AF), fontSize = 11.sp)
+            Spacer(Modifier.width(10.dp))
+            Column(Modifier.weight(1f)) {
+                Text(title, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                if (subtitle.isNotEmpty()) {
+                    Text(subtitle, color = Color(0xFF6B7280), fontSize = 13.sp)
+                }
+                data.reported_by?.let {
+                    Text("報告者: $it", color = Color(0xFF9CA3AF), fontSize = 11.sp)
+                }
+                Spacer(Modifier.height(2.dp))
+                Text(notification.at, color = Color(0xFF9CA3AF), fontSize = 11.sp)
             }
-            Spacer(Modifier.height(2.dp))
-            Text(notification.at, color = Color(0xFF9CA3AF), fontSize = 11.sp)
         }
     }
 }

@@ -3,6 +3,7 @@ package jp.co.nse.worker.data
 import okhttp3.ResponseBody
 import retrofit2.Response
 import retrofit2.http.Body
+import retrofit2.http.DELETE
 import retrofit2.http.GET
 import retrofit2.http.PATCH
 import retrofit2.http.POST
@@ -104,6 +105,26 @@ interface ApiService {
     @POST("worker-process-assignments/unset-default")
     suspend fun unsetDefaultProcessAssignment(@Body body: ProcessAssignmentRequest): Response<ActionResponse>
 
+    // ===== 支給品在庫（管理者向け） =====
+
+    @GET("material-inventories")
+    suspend fun materialInventories(): List<MaterialInventoryDto>
+
+    @GET("orders/material-candidates")
+    suspend fun materialCandidates(@Query("material_inventory_id") id: Int): List<MaterialCandidateDto>
+
+    @POST("material-inventories/{id}/restock")
+    suspend fun restockMaterial(@Path("id") id: Int, @Body body: RestockRequest): Response<ActionResponse>
+
+    @POST("material-inventories/{id}/allocate")
+    suspend fun allocateMaterial(@Path("id") id: Int, @Body body: AllocateRequest): Response<ActionResponse>
+
+    @DELETE("material-inventory-allocations/{id}/deallocate")
+    suspend fun deallocateMaterial(@Path("id") id: Int): Response<ActionResponse>
+
+    @DELETE("material-inventory-transactions/{id}")
+    suspend fun deleteMaterialTransaction(@Path("id") id: Int): Response<ActionResponse>
+
     @GET("orders")
     suspend fun orders(@Query("per_page") perPage: Int = 100): OrdersPage
 
@@ -163,4 +184,8 @@ interface ApiService {
     /** 全通知を既読にする */
     @POST("notifications/read-all")
     suspend fun markAllNotificationsRead(): Response<ActionResponse>
+
+    /** 通知を1件だけ既読にする */
+    @POST("notifications/{id}/read")
+    suspend fun markNotificationRead(@Path("id") id: String): Response<ActionResponse>
 }

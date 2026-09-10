@@ -237,6 +237,13 @@ class WorkerRepository(
     } catch (e: Throwable) {
         ApiResult.Failure(e.toUserMessage())
     }
+
+    /** 通知を1件だけ既読にする（通知一覧でのスワイプ操作用） */
+    suspend fun markNotificationRead(id: String): ApiResult<Unit> = try {
+        handleAction(apiProvider().markNotificationRead(id))
+    } catch (e: Throwable) {
+        ApiResult.Failure(e.toUserMessage())
+    }
 }
 
 /** アプリ自動アップデート：最新版確認とAPKダウンロード */
@@ -347,6 +354,52 @@ class ManagerRepository(
     /** 担当者を割り当て（null で未割当に戻す） */
     suspend fun assignWorker(orderId: Int, processId: Int, workerName: String?): ApiResult<Unit> = try {
         handleAction(apiProvider().assignWorker(orderId, processId, AssignWorkerRequest(workerName)))
+    } catch (e: Throwable) {
+        ApiResult.Failure(e.toUserMessage())
+    }
+
+    /** 支給品在庫一覧（倉庫在庫・引当済み・引当中の受注・入出庫履歴） */
+    suspend fun materialInventories(): ApiResult<List<MaterialInventoryDto>> = try {
+        ApiResult.Success(apiProvider().materialInventories())
+    } catch (e: Throwable) {
+        ApiResult.Failure(e.toUserMessage())
+    }
+
+    /** 指定した支給品在庫の品番に紐づく、引当候補の受注一覧 */
+    suspend fun materialCandidates(materialInventoryId: Int): ApiResult<List<MaterialCandidateDto>> = try {
+        ApiResult.Success(apiProvider().materialCandidates(materialInventoryId))
+    } catch (e: Throwable) {
+        ApiResult.Failure(e.toUserMessage())
+    }
+
+    /** 入荷（倉庫在庫数を増やす） */
+    suspend fun restockMaterial(materialInventoryId: Int, quantity: Int, note: String? = null): ApiResult<Unit> = try {
+        handleAction(apiProvider().restockMaterial(materialInventoryId, RestockRequest(quantity, note)))
+    } catch (e: Throwable) {
+        ApiResult.Failure(e.toUserMessage())
+    }
+
+    /**
+     * 引き当て。サーバー側で二重引き当てチェックがあり、失敗時は422メッセージをそのまま返す。
+     * 成功すると対象受注のmaterial_arrived_atが更新され、ステータス次第で材料到着済みに変わる
+     * （どちらもサーバー側の副作用で、ここでは結果メッセージを表示するだけでよい）。
+     */
+    suspend fun allocateMaterial(materialInventoryId: Int, orderId: Int, quantity: Int, note: String? = null): ApiResult<Unit> = try {
+        handleAction(apiProvider().allocateMaterial(materialInventoryId, AllocateRequest(orderId, quantity, note)))
+    } catch (e: Throwable) {
+        ApiResult.Failure(e.toUserMessage())
+    }
+
+    /** 引き当ての取り消し */
+    suspend fun deallocateMaterial(allocationId: Int): ApiResult<Unit> = try {
+        handleAction(apiProvider().deallocateMaterial(allocationId))
+    } catch (e: Throwable) {
+        ApiResult.Failure(e.toUserMessage())
+    }
+
+    /** 入荷履歴の取り消し。引当済み数量を下回る取消はサーバー側で422拒否される */
+    suspend fun deleteMaterialTransaction(transactionId: Int): ApiResult<Unit> = try {
+        handleAction(apiProvider().deleteMaterialTransaction(transactionId))
     } catch (e: Throwable) {
         ApiResult.Failure(e.toUserMessage())
     }

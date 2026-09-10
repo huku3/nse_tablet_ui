@@ -25,6 +25,7 @@ import androidx.compose.material.icons.automirrored.filled.Logout
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.ChevronLeft
 import androidx.compose.material.icons.filled.ChevronRight
+import androidx.compose.material.icons.filled.EventBusy
 import androidx.compose.material.icons.filled.QrCodeScanner
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.AlertDialog
@@ -115,6 +116,11 @@ class ShippingCalendarViewModel(private val repo: ManagerRepository) : ViewModel
         private set
     var yearMonth by mutableStateOf(YearMonth.now())
         private set
+    var holidayDates by mutableStateOf<Set<String>>(emptySet())
+        private set
+    var overrideDates by mutableStateOf<Set<String>>(emptySet())
+        private set
+    private val loadedFiscalYears = mutableSetOf<Int>()
 
     var scanLookingUp by mutableStateOf(false)
         private set
@@ -143,6 +149,21 @@ class ShippingCalendarViewModel(private val repo: ManagerRepository) : ViewModel
                 is ApiResult.Failure -> error = result.message
             }
             loading = false
+            loadHolidaysIfNeeded(target)
+        }
+    }
+
+    /** 表示中の月の休日マスタ（休日・例外稼働日）を取得する。土日の色分けに使う */
+    private suspend fun loadHolidaysIfNeeded(target: YearMonth) {
+        val fiscalYear = DateUtil.fiscalYearOf(target.atDay(1))
+        if (fiscalYear in loadedFiscalYears) return
+        when (val result = repo.holidayCalendar(fiscalYear)) {
+            is ApiResult.Success -> {
+                holidayDates = holidayDates + result.data.holidays
+                overrideDates = overrideDates + result.data.overrides
+                loadedFiscalYears += fiscalYear
+            }
+            is ApiResult.Failure -> { /* 取得失敗時は土日をそのまま非稼働扱いにする */ }
         }
     }
 
@@ -365,6 +386,8 @@ fun ShippingCalendarScreen(
                     month = month,
                     today = today,
                     selectedDate = selectedDate,
+                    holidayDates = vm.holidayDates,
+                    overrideDates = vm.overrideDates,
                     busyOrderIds = vm.busyOrderIds,
                     bulkBusy = vm.bulkBusy,
                     bulkUndoMessage = vm.bulkUndoMessage,
@@ -409,6 +432,8 @@ private fun ShippingCalendarContent(
     month: ShippingCalendarMonthDto,
     today: LocalDate,
     selectedDate: LocalDate,
+    holidayDates: Set<String>,
+    overrideDates: Set<String>,
     busyOrderIds: Set<Int>,
     bulkBusy: Boolean,
     bulkUndoMessage: String?,
@@ -455,6 +480,8 @@ private fun ShippingCalendarContent(
                                 day = day,
                                 isToday = day.inMonth && DateUtil.parse(day.date) == today,
                                 isSelected = day.inMonth && DateUtil.parse(day.date) == selectedDate,
+                                holidayDates = holidayDates,
+                                overrideDates = overrideDates,
                                 onClick = { DateUtil.parse(day.date)?.let(onSelectDate) },
                             )
                         }
@@ -544,6 +571,8 @@ private fun CalendarDayCell(
     day: ShippingCalendarDayDto,
     isToday: Boolean,
     isSelected: Boolean,
+    holidayDates: Set<String>,
+    overrideDates: Set<String>,
     onClick: () -> Unit,
 ) {
     if (!day.inMonth) {
@@ -555,12 +584,26 @@ private fun CalendarDayCell(
     val date = DateUtil.parse(day.date)
     val orderCount = day.orders.size
 
+    // 休日マスタ（休日・例外稼働日）を参照し、土日でも実際に稼働日なら色を付けない
+    val dayOfWeek = date?.dayOfWeek
+    val isNonWorkingDay = date != null && !DateUtil.isWorkingDay(date, holidayDates, overrideDates)
+    val isWeekend = dayOfWeek == java.time.DayOfWeek.SATURDAY || dayOfWeek == java.time.DayOfWeek.SUNDAY
+    val isNonWorkingWeekend = isNonWorkingDay && isWeekend
+    val isNonWorkingSunday = isNonWorkingWeekend && dayOfWeek == java.time.DayOfWeek.SUNDAY
+    // 土日は色分けだけで休みだと分かるため、スタンプは平日の休日にだけ表示する
+    val isWeekdayHoliday = isNonWorkingDay && !isWeekend
+
     val background = when {
         isToday -> MaterialTheme.colorScheme.primary
         isSelected -> Indigo50
+        isNonWorkingWeekend -> if (isNonWorkingSunday) Color(0xFFFEF2F2) else Color(0xFFEFF6FF)
         else -> Color.White
     }
-    val dateColor = if (isToday) inkFor(MaterialTheme.colorScheme.primary) else MaterialTheme.colorScheme.onSurface
+    val dateColor = when {
+        isToday -> inkFor(MaterialTheme.colorScheme.primary)
+        isNonWorkingWeekend -> if (isNonWorkingSunday) Color(0xFFDC2626) else Color(0xFF2563EB)
+        else -> MaterialTheme.colorScheme.onSurface
+    }
     val borderColor = when {
         isToday -> null
         isSelected -> MaterialTheme.colorScheme.primary
@@ -581,30 +624,43 @@ private fun CalendarDayCell(
                 },
             )
             .clickable(onClick = onClick),
-        contentAlignment = Alignment.Center,
     ) {
-        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            Text(
-                "${date?.dayOfMonth ?: ""}",
-                fontFamily = Mono,
-                fontSize = 17.sp,
-                fontWeight = FontWeight.Bold,
-                color = dateColor,
+        Text(
+            "${date?.dayOfMonth ?: ""}",
+            fontFamily = Mono,
+            fontSize = 17.sp,
+            fontWeight = FontWeight.Bold,
+            color = dateColor,
+            modifier = Modifier.align(Alignment.TopStart).padding(top = Space1, start = Space1),
+        )
+        when {
+            orderCount > 0 -> CountBadge(
+                count = orderCount,
+                onFilledCell = isToday,
+                modifier = Modifier.align(Alignment.Center),
             )
-            if (orderCount > 0) {
-                Spacer(Modifier.height(Space1))
-                CountBadge(count = orderCount, onFilledCell = isToday)
-            }
+            isWeekdayHoliday -> HolidayStamp(modifier = Modifier.align(Alignment.Center))
         }
     }
 }
 
+/** 工場休業日（休日マスタ参照）のスタンプ。土日は色分けだけで判別できるため平日の休日にだけ使う */
 @Composable
-private fun CountBadge(count: Int, onFilledCell: Boolean) {
+private fun HolidayStamp(modifier: Modifier = Modifier) {
+    Icon(
+        Icons.Filled.EventBusy,
+        contentDescription = "休業日",
+        tint = Color(0xFFDC2626),
+        modifier = modifier.size(22.dp),
+    )
+}
+
+@Composable
+private fun CountBadge(count: Int, onFilledCell: Boolean, modifier: Modifier = Modifier) {
     val bg = if (onFilledCell) Color.White.copy(alpha = 0.22f) else MaterialTheme.colorScheme.primary
     val fg = inkFor(MaterialTheme.colorScheme.primary)
     Box(
-        modifier = Modifier
+        modifier = modifier
             .clip(RoundedCornerShape(50))
             .background(bg)
             .padding(horizontal = Space2, vertical = 1.dp),

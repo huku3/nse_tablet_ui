@@ -25,6 +25,7 @@ import androidx.compose.material.icons.automirrored.filled.Logout
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.Print
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.Button
@@ -63,6 +64,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import jp.co.nse.worker.appContainer
+import jp.co.nse.worker.data.ApiResult
 import jp.co.nse.worker.data.AssignProcessDto
 import jp.co.nse.worker.data.CheckSheetOrderDto
 import jp.co.nse.worker.data.CheckSheetProcessDto
@@ -78,6 +80,7 @@ import jp.co.nse.worker.ui.components.MyPageButton
 import jp.co.nse.worker.ui.components.NotificationBell
 import jp.co.nse.worker.ui.components.ProcessAssignmentButton
 import jp.co.nse.worker.ui.components.OrderStatus
+import jp.co.nse.worker.ui.components.ScrollToBottomFab
 import jp.co.nse.worker.ui.components.ScrollToTopFab
 import jp.co.nse.worker.ui.components.rememberCurrentUserName
 import jp.co.nse.worker.ui.tasklist.StatusChip
@@ -113,9 +116,24 @@ fun CheckSheetScreen(
     val userName = rememberCurrentUserName()
     val canAssign by container.settings.canAssignFlow.collectAsState(initial = false)
     val snackbar = remember { SnackbarHostState() }
+    val scope = androidx.compose.runtime.rememberCoroutineScope()
     var pickerProcess by remember { mutableStateOf<CheckSheetProcessDto?>(null) }
     var deadlineProcess by remember { mutableStateOf<CheckSheetProcessDto?>(null) }
     var showMarkArrivedConfirm by remember { mutableStateOf(false) }
+    var printing by remember { mutableStateOf(false) }
+
+    fun printDrawing(processId: Int) {
+        if (printing) return
+        scope.launch {
+            printing = true
+            val file = java.io.File(context.cacheDir, "print_drawing_$processId.pdf")
+            when (val result = container.workerRepository.downloadDrawing(processId, file)) {
+                is ApiResult.Success -> printPdfFile(context, result.data)
+                is ApiResult.Failure -> snackbar.showSnackbar(result.message)
+            }
+            printing = false
+        }
+    }
 
     LaunchedEffect(Unit) { vm.load() }
     LaunchedEffect(canAssign) { if (canAssign) vm.loadWorkers() }
@@ -183,6 +201,11 @@ fun CheckSheetScreen(
                     onViewDrawing = {
                         val processId = order.processes.minByOrNull { it.sort_order }?.id ?: 0
                         onViewDrawing(processId, order.part_name, order.id, order.po_number)
+                    },
+                    printing = printing,
+                    onPrintDrawing = {
+                        val processId = order.processes.minByOrNull { it.sort_order }?.id ?: 0
+                        printDrawing(processId)
                     },
                 )
             }
@@ -296,6 +319,8 @@ private fun CheckSheetContent(
     markingArrived: Boolean,
     onMarkArrived: () -> Unit,
     onViewDrawing: () -> Unit,
+    printing: Boolean,
+    onPrintDrawing: () -> Unit,
 ) {
     val scrollState = rememberScrollState()
     val scope = androidx.compose.runtime.rememberCoroutineScope()
@@ -324,14 +349,30 @@ private fun CheckSheetContent(
         }
 
         if (order.has_drawing) {
-            OutlinedButton(
-                onClick = { feedback(); onViewDrawing() },
-                shape = RoundedCornerShape(14.dp),
-                modifier = Modifier.fillMaxWidth().height(56.dp),
-            ) {
-                Icon(Icons.Filled.Description, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(20.dp))
-                Spacer(Modifier.width(8.dp))
-                Text("図面を見る", fontWeight = FontWeight.Bold, fontSize = 16.sp, color = MaterialTheme.colorScheme.primary)
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
+                OutlinedButton(
+                    onClick = { feedback(); onViewDrawing() },
+                    shape = RoundedCornerShape(14.dp),
+                    modifier = Modifier.weight(1f).height(56.dp),
+                ) {
+                    Icon(Icons.Filled.Description, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(20.dp))
+                    Spacer(Modifier.width(8.dp))
+                    Text("図面を見る", fontWeight = FontWeight.Bold, fontSize = 16.sp, color = MaterialTheme.colorScheme.primary)
+                }
+                OutlinedButton(
+                    onClick = { feedback(); onPrintDrawing() },
+                    enabled = !printing,
+                    shape = RoundedCornerShape(14.dp),
+                    modifier = Modifier.weight(1f).height(56.dp),
+                ) {
+                    if (printing) {
+                        CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp, color = MaterialTheme.colorScheme.primary)
+                    } else {
+                        Icon(Icons.Filled.Print, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(20.dp))
+                        Spacer(Modifier.width(8.dp))
+                        Text("図面を印刷", fontWeight = FontWeight.Bold, fontSize = 16.sp, color = MaterialTheme.colorScheme.primary)
+                    }
+                }
             }
         }
 
@@ -357,6 +398,11 @@ private fun CheckSheetContent(
         visible = scrollState.value > 0,
         onClick = { scope.launch { scrollState.animateScrollTo(0) } },
         modifier = Modifier.align(Alignment.BottomEnd).padding(20.dp),
+    )
+    ScrollToBottomFab(
+        visible = scrollState.value < scrollState.maxValue,
+        onClick = { scope.launch { scrollState.animateScrollTo(scrollState.maxValue) } },
+        modifier = Modifier.align(Alignment.BottomStart).padding(20.dp),
     )
     }
 }
@@ -797,3 +843,51 @@ private fun deadlineLabel(process: CheckSheetProcessDto): String {
 }
 
 private fun String?.orDash(): String = this?.takeIf { it.isNotBlank() } ?: "―"
+
+/** ダウンロード済みの図面PDFをAndroid標準の印刷ダイアログ（プリンタ選択・PDF保存を含む）に渡す */
+private fun printPdfFile(context: android.content.Context, pdfFile: java.io.File) {
+    val printManager = context.getSystemService(android.content.Context.PRINT_SERVICE) as android.print.PrintManager
+    printManager.print(
+        pdfFile.name,
+        DrawingPrintAdapter(pdfFile),
+        android.print.PrintAttributes.Builder().build(),
+    )
+}
+
+/** 既存のPDFファイルをそのまま印刷データとして流し込むだけのシンプルなアダプタ */
+private class DrawingPrintAdapter(private val pdfFile: java.io.File) : android.print.PrintDocumentAdapter() {
+    override fun onLayout(
+        oldAttributes: android.print.PrintAttributes?,
+        newAttributes: android.print.PrintAttributes,
+        cancellationSignal: android.os.CancellationSignal?,
+        callback: LayoutResultCallback,
+        extras: android.os.Bundle?,
+    ) {
+        if (cancellationSignal?.isCanceled == true) {
+            callback.onLayoutCancelled()
+            return
+        }
+        val info = android.print.PrintDocumentInfo.Builder(pdfFile.name)
+            .setContentType(android.print.PrintDocumentInfo.CONTENT_TYPE_DOCUMENT)
+            .build()
+        callback.onLayoutFinished(info, true)
+    }
+
+    override fun onWrite(
+        pages: Array<out android.print.PageRange>?,
+        destination: android.os.ParcelFileDescriptor,
+        cancellationSignal: android.os.CancellationSignal?,
+        callback: WriteResultCallback,
+    ) {
+        try {
+            java.io.FileInputStream(pdfFile).use { input ->
+                java.io.FileOutputStream(destination.fileDescriptor).use { output ->
+                    input.copyTo(output)
+                }
+            }
+            callback.onWriteFinished(arrayOf(android.print.PageRange.ALL_PAGES))
+        } catch (e: Exception) {
+            callback.onWriteFailed(e.message)
+        }
+    }
+}

@@ -80,6 +80,7 @@ import jp.co.nse.worker.ui.components.DashboardButton
 import jp.co.nse.worker.ui.components.MyPageButton
 import jp.co.nse.worker.ui.components.NotificationBell
 import jp.co.nse.worker.ui.components.ProcessAssignmentButton
+import jp.co.nse.worker.ui.components.ScrollToBottomFab
 import jp.co.nse.worker.ui.components.ScrollToTopFab
 import jp.co.nse.worker.ui.components.rememberCurrentUserName
 import jp.co.nse.worker.ui.theme.Green600
@@ -501,6 +502,16 @@ fun AssignmentDetailScreen(
                         visible = listState.firstVisibleItemIndex > 0,
                         onClick = { scope.launch { listState.animateScrollToItem(0) } },
                         modifier = Modifier.align(Alignment.BottomEnd).padding(20.dp),
+                    )
+                    ScrollToBottomFab(
+                        visible = listState.canScrollForward,
+                        onClick = {
+                            scope.launch {
+                                val lastIndex = listState.layoutInfo.totalItemsCount - 1
+                                if (lastIndex >= 0) listState.animateScrollToItem(lastIndex)
+                            }
+                        },
+                        modifier = Modifier.align(Alignment.BottomStart).padding(20.dp),
                     )
                 }
             }

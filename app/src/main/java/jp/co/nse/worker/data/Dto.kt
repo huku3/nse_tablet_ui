@@ -490,3 +490,62 @@ data class ProcessAssignmentRequest(
 data class ToggleProcessAssignmentResponse(
     val assigned: Boolean,
 )
+
+// ===== 支給品在庫 =====
+
+@Serializable
+data class MaterialInventoryDto(
+    val id: Int,
+    val material_name: String,
+    val material_size: String? = null,
+    val customer_name: String? = null,
+    val quantity: Int,
+    val allocated_quantity: Int,
+    val allocations: List<MaterialAllocationDto> = emptyList(),
+    val transactions: List<MaterialTransactionDto> = emptyList(),
+)
+
+@Serializable
+data class MaterialAllocationDto(
+    val id: Int,
+    val order_id: Int,
+    val customer_name: String? = null,
+    val part_name: String? = null,
+    val quantity: Int,
+    val note: String? = null,
+    val created_by: String? = null,
+    val created_at: String? = null,
+)
+
+@Serializable
+data class MaterialTransactionDto(
+    val id: Int,
+    val type: String,
+    val quantity: Int,
+    val note: String? = null,
+    val created_by: String? = null,
+    val created_at: String,
+)
+
+@Serializable
+data class MaterialCandidateDto(
+    val order_id: Int,
+    val customer_name: String? = null,
+    val part_name: String? = null,
+    val order_quantity: Int? = null,
+    val delivery_date: String? = null,
+    val status: String? = null,
+)
+
+@Serializable
+data class RestockRequest(
+    val quantity: Int,
+    val note: String? = null,
+)
+
+@Serializable
+data class AllocateRequest(
+    val order_id: Int,
+    val quantity: Int,
+    val note: String? = null,
+)

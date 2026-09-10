@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -62,6 +63,7 @@ import jp.co.nse.worker.ui.components.HeaderTitle
 import jp.co.nse.worker.ui.components.HeaderUserLabel
 import jp.co.nse.worker.ui.components.NotificationBell
 import jp.co.nse.worker.ui.components.ProcessAssignmentButton
+import jp.co.nse.worker.ui.components.ScrollToBottomFab
 import jp.co.nse.worker.ui.components.ScrollToTopFab
 import jp.co.nse.worker.ui.components.rememberCurrentUserName
 import jp.co.nse.worker.ui.history.DayStat
@@ -166,10 +168,21 @@ fun MyPageScreen(
                 onClick = { scope.launch { listState.animateScrollToItem(0) } },
                 modifier = Modifier.align(Alignment.BottomEnd).padding(20.dp),
             )
+            ScrollToBottomFab(
+                visible = listState.canScrollForward,
+                onClick = {
+                    scope.launch {
+                        val lastIndex = listState.layoutInfo.totalItemsCount - 1
+                        if (lastIndex >= 0) listState.animateScrollToItem(lastIndex)
+                    }
+                },
+                modifier = Modifier.align(Alignment.BottomStart).padding(20.dp),
+            )
         }
     }
 }
 
+@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 @Composable
 private fun MyPageContent(
     listState: androidx.compose.foundation.lazy.LazyListState,
@@ -217,7 +230,7 @@ private fun MyPageContent(
                 Tab(
                     selected = selectedSection == 0,
                     onClick = { selectedSection = 0 },
-                    text = { Text("メイン色", fontWeight = FontWeight.Bold) },
+                    text = { Text("メインカラー", fontWeight = FontWeight.Bold) },
                 )
                 Tab(
                     selected = selectedSection == 1,
@@ -231,12 +244,15 @@ private fun MyPageContent(
             item(key = "accent") {
                 Column(Modifier.padding(top = 16.dp)) {
                     Text(
-                        "${userName}さんのアカウントのメイン色です。ヘッダーやボタンの色に使われ、次回ログイン時も引き継がれます。",
+                        "${userName}さんのアカウントのメインカラーです。ヘッダーやボタンの色に使われ、次回ログイン時も引き継がれます。",
                         style = MaterialTheme.typography.bodyMedium,
                         color = Color(0xFF6B7280),
                         modifier = Modifier.padding(bottom = 16.dp),
                     )
-                    Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                    androidx.compose.foundation.layout.FlowRow(
+                        horizontalArrangement = Arrangement.spacedBy(16.dp),
+                        verticalArrangement = Arrangement.spacedBy(12.dp),
+                    ) {
                         AccentPresets.forEach { preset ->
                             ColorSwatch(
                                 preset = preset,
@@ -324,6 +340,12 @@ private fun ColorSwatch(preset: AccentPreset, selected: Boolean, saving: Boolean
             }
         }
         Spacer(Modifier.height(6.dp))
-        Text(preset.label, fontSize = 12.sp, color = Color(0xFF6B7280))
+        Text(
+            preset.label,
+            fontSize = 12.sp,
+            color = Color(0xFF6B7280),
+            textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+            modifier = Modifier.width(68.dp),
+        )
     }
 }

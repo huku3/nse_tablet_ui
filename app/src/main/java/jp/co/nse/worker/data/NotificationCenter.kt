@@ -60,4 +60,16 @@ class NotificationCenter(private val repo: WorkerRepository) {
             }
         }
     }
+
+    /** 通知一覧でのスワイプ操作用。1件だけ既読にする。楽観的に即座にリストから消し、失敗時のみ元に戻す */
+    fun markRead(id: String) {
+        if (notifications.none { it.id == id }) return
+        notifications = notifications.filterNot { it.id == id }
+        scope.launch {
+            when (repo.markNotificationRead(id)) {
+                is ApiResult.Success -> {}
+                is ApiResult.Failure -> refresh()
+            }
+        }
+    }
 }

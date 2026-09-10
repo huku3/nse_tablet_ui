@@ -18,6 +18,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Assignment
 import androidx.compose.material.icons.automirrored.filled.ListAlt
 import androidx.compose.material.icons.filled.Group
+import androidx.compose.material.icons.filled.Inventory2
 import androidx.compose.material.icons.filled.LocalShipping
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -39,6 +40,7 @@ import jp.co.nse.worker.appContainer
 import jp.co.nse.worker.ui.assignment.AssignmentListScreen
 import jp.co.nse.worker.ui.assignment.OrderListMode
 import jp.co.nse.worker.ui.calendar.ShippingCalendarScreen
+import jp.co.nse.worker.ui.inventory.InventoryScreen
 import jp.co.nse.worker.ui.tasklist.TaskListScreen
 import jp.co.nse.worker.util.rememberClickFeedback
 import kotlinx.coroutines.launch
@@ -47,6 +49,7 @@ private enum class HomeTab(val label: String, val icon: ImageVector) {
     TASKS("作業一覧", Icons.AutoMirrored.Filled.ListAlt),
     ASSIGN("割り当て", Icons.Filled.Group),
     ORDERS("受注一覧", Icons.AutoMirrored.Filled.Assignment),
+    INVENTORY("在庫", Icons.Filled.Inventory2),
     SHIPPING("出荷カレンダー", Icons.Filled.LocalShipping),
 }
 
@@ -78,6 +81,8 @@ fun HomeScreen(
             // 両方の権限を持つアカウントには両方のタブを表示する
             if (canAssign) add(HomeTab.ASSIGN)
             if (canViewOrders) add(HomeTab.ORDERS)
+            // 在庫の入荷・引当もWebの受注一覧権限（orders.view）を持つアカウント向けの機能
+            if (canViewOrders) add(HomeTab.INVENTORY)
             if (canViewShipping) add(HomeTab.SHIPPING)
         }
     }
@@ -100,6 +105,7 @@ fun HomeScreen(
                 title = "受注一覧",
                 mode = OrderListMode.ORDER_LIST,
             )
+            HomeTab.INVENTORY -> InventoryScreen(onLogout = onLogout)
             HomeTab.SHIPPING -> ShippingCalendarScreen(onOpenCheckSheet = onOpenCheckSheet, onLogout = onLogout)
         }
     }
