@@ -473,13 +473,28 @@ private fun StatusFilterCard(
         ),
         shape = RoundedCornerShape(14.dp),
     ) {
-        Column(Modifier.padding(horizontal = 14.dp, vertical = 10.dp)) {
-            Text(label, fontSize = 11.sp, color = Color(0xFF9CA3AF), maxLines = 1, softWrap = false)
+        Column(
+            modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            Text(
+                label,
+                fontSize = 11.sp,
+                color = Color(0xFF9CA3AF),
+                maxLines = 1,
+                softWrap = false,
+                textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                modifier = Modifier.fillMaxWidth(),
+            )
             Spacer(Modifier.height(2.dp))
-            Row(verticalAlignment = Alignment.Bottom) {
-                Text(count.toString(), fontSize = 20.sp, fontWeight = FontWeight.ExtraBold, color = color)
-                Text("件", fontSize = 12.sp, color = color, modifier = Modifier.padding(start = 2.dp, bottom = 2.dp))
-            }
+            Text(
+                count.toString(),
+                fontSize = 20.sp,
+                fontWeight = FontWeight.ExtraBold,
+                color = color,
+                textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                modifier = Modifier.fillMaxWidth(),
+            )
         }
     }
 }
