@@ -24,6 +24,9 @@ private fun UserDto.hasFeature(feature: String): Boolean =
 /** 割当権限（担当者割り振り・工程管理チェックシートの編集）を持つか */
 fun UserDto.canAssign(): Boolean = hasFeature("checksheet.assign_worker")
 
+/** 受注一覧の閲覧権限を持つか（割当権限とは独立した権限） */
+fun UserDto.canViewOrders(): Boolean = hasFeature("orders.view")
+
 /** 出荷カレンダーを見る権限を持つか */
 fun UserDto.canViewShippingCalendar(): Boolean = hasFeature("shipping.calendar")
 
@@ -62,7 +65,7 @@ class AuthRepository(
 ) {
     suspend fun login(email: String, password: String): ApiResult<UserDto> = try {
         val res = apiProvider().login(LoginRequest(email, password))
-        settings.saveToken(res.token, res.user.name, res.user.role, res.user.canAssign(), res.user.canViewShippingCalendar(), res.user.canManageProcessAssignments(), res.user.color)
+        settings.saveToken(res.token, res.user.name, res.user.role, res.user.canAssign(), res.user.canViewOrders(), res.user.canViewShippingCalendar(), res.user.canManageProcessAssignments(), res.user.color)
         ApiResult.Success(res.user)
     } catch (e: retrofit2.HttpException) {
         val msg = e.response()?.errorBody()?.string()?.let {
@@ -83,7 +86,7 @@ class AuthRepository(
     /** アカウントID＋社員番号でログイン */
     suspend fun loginById(userId: Int, employeeNumber: String): ApiResult<UserDto> = try {
         val res = apiProvider().loginById(LoginByIdRequest(userId, employeeNumber))
-        settings.saveToken(res.token, res.user.name, res.user.role, res.user.canAssign(), res.user.canViewShippingCalendar(), res.user.canManageProcessAssignments(), res.user.color)
+        settings.saveToken(res.token, res.user.name, res.user.role, res.user.canAssign(), res.user.canViewOrders(), res.user.canViewShippingCalendar(), res.user.canManageProcessAssignments(), res.user.color)
         ApiResult.Success(res.user)
     } catch (e: retrofit2.HttpException) {
         val msg = e.response()?.errorBody()?.string()?.let {

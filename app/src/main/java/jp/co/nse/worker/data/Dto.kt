@@ -197,6 +197,7 @@ data class OrderAssignDto(
     val id: Int,
     val po_number: String? = null,
     val customer_order_number: String? = null,
+    val customer_name: String? = null,
     val part_name: String? = null,
     val part_number: String? = null,
     val delivery_date: String? = null,
@@ -438,6 +439,7 @@ data class CheckSheetOrderDto(
     val defect_count: Int? = null,
     val material_arrived_at: String? = null,
     val created_at: String? = null,
+    val has_drawing: Boolean = false,
     val product: CheckSheetProductDto? = null,
     val processes: List<CheckSheetProcessDto> = emptyList(),
 )

@@ -23,6 +23,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Logout
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Warning
@@ -34,6 +35,7 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.CenterAlignedTopAppBar
@@ -97,6 +99,7 @@ import kotlinx.coroutines.launch
 fun CheckSheetScreen(
     orderId: Int,
     onBack: () -> Unit,
+    onViewDrawing: (processId: Int, title: String?, orderId: Int, poNumber: String?) -> Unit = { _, _, _, _ -> },
     onLogout: () -> Unit = {},
 ) {
     val feedback = rememberClickFeedback()
@@ -177,6 +180,10 @@ fun CheckSheetScreen(
                     onChangeDeadline = { deadlineProcess = it },
                     markingArrived = vm.markingArrived,
                     onMarkArrived = { showMarkArrivedConfirm = true },
+                    onViewDrawing = {
+                        val processId = order.processes.minByOrNull { it.sort_order }?.id ?: 0
+                        onViewDrawing(processId, order.part_name, order.id, order.po_number)
+                    },
                 )
             }
         }
@@ -288,9 +295,11 @@ private fun CheckSheetContent(
     onChangeDeadline: (CheckSheetProcessDto) -> Unit,
     markingArrived: Boolean,
     onMarkArrived: () -> Unit,
+    onViewDrawing: () -> Unit,
 ) {
     val scrollState = rememberScrollState()
     val scope = androidx.compose.runtime.rememberCoroutineScope()
+    val feedback = rememberClickFeedback()
 
     Box(Modifier.fillMaxSize()) {
     Column(
@@ -311,6 +320,18 @@ private fun CheckSheetContent(
                     Spacer(Modifier.height(4.dp))
                     Text("発注番号: ${order.po_number}", color = Gray500, fontSize = 14.sp)
                 }
+            }
+        }
+
+        if (order.has_drawing) {
+            OutlinedButton(
+                onClick = { feedback(); onViewDrawing() },
+                shape = RoundedCornerShape(14.dp),
+                modifier = Modifier.fillMaxWidth().height(56.dp),
+            ) {
+                Icon(Icons.Filled.Description, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(20.dp))
+                Spacer(Modifier.width(8.dp))
+                Text("図面を見る", fontWeight = FontWeight.Bold, fontSize = 16.sp, color = MaterialTheme.colorScheme.primary)
             }
         }
 

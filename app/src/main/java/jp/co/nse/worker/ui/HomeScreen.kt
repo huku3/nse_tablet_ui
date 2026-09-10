@@ -15,6 +15,7 @@ import androidx.compose.foundation.pager.PagerState
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.Assignment
 import androidx.compose.material.icons.automirrored.filled.ListAlt
 import androidx.compose.material.icons.filled.Group
 import androidx.compose.material.icons.filled.LocalShipping
@@ -36,6 +37,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.dp
 import jp.co.nse.worker.appContainer
 import jp.co.nse.worker.ui.assignment.AssignmentListScreen
+import jp.co.nse.worker.ui.assignment.OrderListMode
 import jp.co.nse.worker.ui.calendar.ShippingCalendarScreen
 import jp.co.nse.worker.ui.tasklist.TaskListScreen
 import jp.co.nse.worker.util.rememberClickFeedback
@@ -44,13 +46,15 @@ import kotlinx.coroutines.launch
 private enum class HomeTab(val label: String, val icon: ImageVector) {
     TASKS("作業一覧", Icons.AutoMirrored.Filled.ListAlt),
     ASSIGN("割り当て", Icons.Filled.Group),
+    ORDERS("受注一覧", Icons.AutoMirrored.Filled.Assignment),
     SHIPPING("出荷カレンダー", Icons.Filled.LocalShipping),
 }
 
 /**
  * ログイン後のホーム。実際に権限を持つタブだけを下部に並べる（割り当て＝checksheet.assign_worker、
- * 出荷カレンダー＝shipping.calendar）。タブが複数ある場合は、下部タブのタップだけでなく
- * 画面を横にスワイプしても切り替えられるようにする。
+ * 受注一覧＝orders.view、出荷カレンダー＝shipping.calendar）。割り当て権限を持つ場合は
+ * 受注一覧タブと内容が重複するため受注一覧タブは表示しない。タブが複数ある場合は、
+ * 下部タブのタップだけでなく画面を横にスワイプしても切り替えられるようにする。
  */
 @Composable
 fun HomeScreen(
@@ -64,12 +68,17 @@ fun HomeScreen(
     val context = androidx.compose.ui.platform.LocalContext.current
     val container = context.appContainer
     val canAssign by container.settings.canAssignFlow.collectAsState(initial = false)
+    val canViewOrders by container.settings.canViewOrdersFlow.collectAsState(initial = false)
     val canViewShipping by container.settings.canViewShippingFlow.collectAsState(initial = false)
 
-    val tabs = remember(canAssign, canViewShipping) {
+    val tabs = remember(canAssign, canViewOrders, canViewShipping) {
         buildList {
             add(HomeTab.TASKS)
-            if (canAssign) add(HomeTab.ASSIGN)
+            if (canAssign) {
+                add(HomeTab.ASSIGN)
+            } else if (canViewOrders) {
+                add(HomeTab.ORDERS)
+            }
             if (canViewShipping) add(HomeTab.SHIPPING)
         }
     }
@@ -84,6 +93,14 @@ fun HomeScreen(
                 onCompletedMessageShown = onCompletedMessageShown,
             )
             HomeTab.ASSIGN -> AssignmentListScreen(onOpenOrder = onOpenOrder, onLogout = onLogout)
+            // 受注一覧のみの権限では担当者割り当ての編集はできないため、タップ先は
+            // 工程管理チェックシート（閲覧のみ）にする
+            HomeTab.ORDERS -> AssignmentListScreen(
+                onOpenOrder = onOpenCheckSheet,
+                onLogout = onLogout,
+                title = "受注一覧",
+                mode = OrderListMode.ORDER_LIST,
+            )
             HomeTab.SHIPPING -> ShippingCalendarScreen(onOpenCheckSheet = onOpenCheckSheet, onLogout = onLogout)
         }
     }

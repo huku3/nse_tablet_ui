@@ -27,6 +27,7 @@ class SettingsStore(private val context: Context) {
         val USER_NAME = stringPreferencesKey("user_name")
         val USER_ROLE = stringPreferencesKey("user_role")
         val CAN_ASSIGN = booleanPreferencesKey("can_assign")
+        val CAN_VIEW_ORDERS = booleanPreferencesKey("can_view_orders")
         val CAN_VIEW_SHIPPING = booleanPreferencesKey("can_view_shipping")
         val CAN_MANAGE_PROCESS_ASSIGNMENTS = booleanPreferencesKey("can_manage_process_assignments")
         val ACCENT_COLOR = stringPreferencesKey("accent_color_hex")
@@ -46,6 +47,7 @@ class SettingsStore(private val context: Context) {
     val userNameFlow: Flow<String?> = context.dataStore.data.map { it[Keys.USER_NAME] }
     val userRoleFlow: Flow<String?> = context.dataStore.data.map { it[Keys.USER_ROLE] }
     val canAssignFlow: Flow<Boolean> = context.dataStore.data.map { it[Keys.CAN_ASSIGN] ?: false }
+    val canViewOrdersFlow: Flow<Boolean> = context.dataStore.data.map { it[Keys.CAN_VIEW_ORDERS] ?: false }
     val canViewShippingFlow: Flow<Boolean> = context.dataStore.data.map { it[Keys.CAN_VIEW_SHIPPING] ?: false }
     val canManageProcessAssignmentsFlow: Flow<Boolean> =
         context.dataStore.data.map { it[Keys.CAN_MANAGE_PROCESS_ASSIGNMENTS] ?: false }
@@ -59,6 +61,7 @@ class SettingsStore(private val context: Context) {
         userName: String,
         userRole: String?,
         canAssign: Boolean,
+        canViewOrders: Boolean,
         canViewShipping: Boolean,
         canManageProcessAssignments: Boolean,
         accentColorHex: String?,
@@ -69,6 +72,7 @@ class SettingsStore(private val context: Context) {
             it[Keys.USER_NAME] = userName
             if (userRole != null) it[Keys.USER_ROLE] = userRole else it.remove(Keys.USER_ROLE)
             it[Keys.CAN_ASSIGN] = canAssign
+            it[Keys.CAN_VIEW_ORDERS] = canViewOrders
             it[Keys.CAN_VIEW_SHIPPING] = canViewShipping
             it[Keys.CAN_MANAGE_PROCESS_ASSIGNMENTS] = canManageProcessAssignments
             it[Keys.ACCENT_COLOR] = accentColorHex ?: DEFAULT_ACCENT_HEX
@@ -87,6 +91,7 @@ class SettingsStore(private val context: Context) {
             it.remove(Keys.USER_NAME)
             it.remove(Keys.USER_ROLE)
             it.remove(Keys.CAN_ASSIGN)
+            it.remove(Keys.CAN_VIEW_ORDERS)
             it.remove(Keys.CAN_VIEW_SHIPPING)
             it.remove(Keys.CAN_MANAGE_PROCESS_ASSIGNMENTS)
             it.remove(Keys.ACCENT_COLOR)

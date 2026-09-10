@@ -157,6 +157,9 @@ fun AppNav() {
             CheckSheetScreen(
                 orderId = orderId,
                 onBack = { navController.popBackStack() },
+                onViewDrawing = { pid, title, oid, poNumber ->
+                    navController.navigate(Routes.drawing(pid, title, oid, poNumber))
+                },
                 onLogout = logout,
             )
         }
