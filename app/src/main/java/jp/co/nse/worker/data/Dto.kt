@@ -501,6 +501,7 @@ data class MaterialInventoryDto(
     val customer_name: String? = null,
     val quantity: Int,
     val allocated_quantity: Int,
+    val part_numbers: List<String> = emptyList(),
     val allocations: List<MaterialAllocationDto> = emptyList(),
     val transactions: List<MaterialTransactionDto> = emptyList(),
 )

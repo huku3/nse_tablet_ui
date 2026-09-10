@@ -387,6 +387,7 @@ private fun ProcessedOrderCard(order: OrderAssignDto) {
 
 private enum class MaterialPanel { RESTOCK, ALLOCATE, HISTORY }
 
+@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 @Composable
 private fun MaterialInventoryCard(
     material: MaterialInventoryDto,
@@ -422,6 +423,29 @@ private fun MaterialInventoryCard(
                 fontSize = 14.sp,
                 color = Color(0xFF6B7280),
             )
+            Spacer(Modifier.height(6.dp))
+            if (material.part_numbers.isEmpty()) {
+                Text("品番未設定", fontSize = 13.sp, color = Color(0xFF9CA3AF))
+            } else {
+                androidx.compose.foundation.layout.FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    material.part_numbers.forEach { partNumber ->
+                        Text(
+                            partNumber,
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = Color(0xFF4338CA),
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(6.dp))
+                                .background(Color(0xFFEEF2FF))
+                                .border(1.dp, Color(0xFFC7D2FE), RoundedCornerShape(6.dp))
+                                .padding(horizontal = 8.dp, vertical = 3.dp),
+                        )
+                    }
+                }
+            }
             Spacer(Modifier.height(10.dp))
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 StockStat("倉庫", material.quantity, Color(0xFFEBF0FA), Color(0xFF1351B4), Modifier.weight(1f))
