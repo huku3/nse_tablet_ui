@@ -1,5 +1,7 @@
 package jp.co.nse.worker.ui.taskdetail
 
+import android.graphics.Bitmap
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
@@ -13,6 +15,7 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -29,8 +32,10 @@ import androidx.compose.material.icons.automirrored.filled.Assignment
 import androidx.compose.material.icons.automirrored.filled.Logout
 import androidx.compose.material.icons.filled.Build
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.PhotoCamera
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.AlertDialog
@@ -44,6 +49,9 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.RadioButton
+import androidx.compose.material3.RadioButtonDefaults
 import androidx.compose.material3.CenterAlignedTopAppBar
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
@@ -63,6 +71,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
@@ -71,17 +80,19 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import jp.co.nse.worker.appContainer
+import jp.co.nse.worker.data.ImageAttachment
 import jp.co.nse.worker.data.ProcessBriefDto
 import jp.co.nse.worker.data.TaskDetailDto
 import jp.co.nse.worker.data.WorkStatus
 import jp.co.nse.worker.util.rememberClickFeedback
 import kotlinx.coroutines.launch
+import jp.co.nse.worker.ui.components.CameraCaptureDialog
 import jp.co.nse.worker.ui.components.HeaderTitle
+import jp.co.nse.worker.ui.components.HeaderLogo
+import jp.co.nse.worker.ui.components.HeaderOverflowMenu
+import jp.co.nse.worker.ui.components.PhotoAnnotateDialog
 import jp.co.nse.worker.ui.components.HeaderUserLabel
-import jp.co.nse.worker.ui.components.DashboardButton
-import jp.co.nse.worker.ui.components.MyPageButton
 import jp.co.nse.worker.ui.components.NotificationBell
-import jp.co.nse.worker.ui.components.ProcessAssignmentButton
 import jp.co.nse.worker.ui.components.OrderStatusBadge
 import jp.co.nse.worker.ui.components.rememberCurrentUserName
 import jp.co.nse.worker.ui.components.ScrollToBottomFab
@@ -104,6 +115,8 @@ fun TaskDetailScreen(
     onOpenCheckSheet: (orderId: Int) -> Unit = {},
     onLogout: () -> Unit = {},
     onCompleted: (processName: String) -> Unit = { onBack() },
+    onSwitchToNextProcess: (nextProcessId: Int) -> Unit = {},
+    onOpenProcess: (processId: Int) -> Unit = {},
 ) {
     val feedback = rememberClickFeedback()
     val context = androidx.compose.ui.platform.LocalContext.current
@@ -119,6 +132,7 @@ fun TaskDetailScreen(
 
     var showPauseDialog by remember { mutableStateOf(false) }
     var showDefectDialog by remember { mutableStateOf(false) }
+    var showReworkDialog by remember { mutableStateOf(false) }
     var showMaterialDialog by remember { mutableStateOf(false) }
     var showBrokenDialog by remember { mutableStateOf(false) }
     var showCompleteDialog by remember { mutableStateOf(false) }
@@ -139,16 +153,17 @@ fun TaskDetailScreen(
             CenterAlignedTopAppBar(
                 title = { HeaderTitle("作業詳細") },
                 navigationIcon = {
-                    IconButton(onClick = { feedback(); onBack() }) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "戻る", tint = MaterialTheme.colorScheme.onPrimary)
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        IconButton(onClick = { feedback(); onBack() }) {
+                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "戻る", tint = MaterialTheme.colorScheme.onPrimary)
+                        }
+                        HeaderLogo()
                     }
                 },
                 actions = {
                     HeaderUserLabel(userName)
                     NotificationBell()
-                    MyPageButton()
-                    DashboardButton()
-                    ProcessAssignmentButton()
+                    HeaderOverflowMenu()
                     IconButton(onClick = { feedback(); vm.load() }) {
                         Icon(Icons.Filled.Refresh, contentDescription = "更新", tint = MaterialTheme.colorScheme.onPrimary)
                     }
@@ -205,7 +220,9 @@ fun TaskDetailScreen(
                         onBroken = { showBrokenDialog = true },
                         onRecover = { vm.changeStatus(WorkStatus.IN_PROGRESS) },
                         onDefect = { showDefectDialog = true },
+                        onRequestRework = { showReworkDialog = true },
                         onUndoStart = { vm.changeStatus(WorkStatus.WAITING) },
+                        onOpenProcess = onOpenProcess,
                     )
                 }
             }
@@ -228,6 +245,19 @@ fun TaskDetailScreen(
             onSubmit = { count ->
                 showDefectDialog = false
                 vm.reportDefect(count)
+            },
+        )
+    }
+
+    if (showReworkDialog) {
+        val d = vm.detail
+        val candidates = d?.all_processes?.filter { it.sort_order < d.process.sort_order } ?: emptyList()
+        ReworkDialog(
+            candidates = candidates,
+            onDismiss = { showReworkDialog = false },
+            onSubmit = { targetId, count, content, photo ->
+                showReworkDialog = false
+                vm.requestRework(targetId, count, content, photo)
             },
         )
     }
@@ -260,11 +290,25 @@ fun TaskDetailScreen(
             processName = vm.detail?.process?.process_name,
             onConfirm = {
                 showCompleteDialog = false
-                val completedName = vm.detail?.process?.process_name.orEmpty()
+                val d = vm.detail
+                val completedName = d?.process?.process_name.orEmpty()
+                // 次の工程（sort_orderが直後）の担当者が自分と同じなら、作業一覧には戻らず
+                // そのままその工程の作業詳細画面へ切り替える（連続作業を想定した動線）
+                val nextSameWorkerProcessId = d?.all_processes
+                    ?.filter { it.sort_order > d.process.sort_order }
+                    ?.minByOrNull { it.sort_order }
+                    ?.takeIf { it.worker == userName }
+                    ?.id
                 vm.changeStatus(
                     WorkStatus.COMPLETED,
                     popOnSuccess = true,
-                    onPop = { onCompleted(completedName) },
+                    onPop = {
+                        if (nextSameWorkerProcessId != null) {
+                            onSwitchToNextProcess(nextSameWorkerProcessId)
+                        } else {
+                            onCompleted(completedName)
+                        }
+                    },
                 )
             },
             onCancel = { showCompleteDialog = false },
@@ -285,7 +329,9 @@ private fun DetailContent(
     onBroken: () -> Unit,
     onRecover: () -> Unit,
     onDefect: () -> Unit,
+    onRequestRework: () -> Unit,
     onUndoStart: () -> Unit,
+    onOpenProcess: (processId: Int) -> Unit,
 ) {
     val currentUserName = rememberCurrentUserName()
     val isLandscape = androidx.compose.ui.platform.LocalConfiguration.current.orientation ==
@@ -302,13 +348,14 @@ private fun DetailContent(
             onBroken = onBroken,
             onRecover = onRecover,
             onDefect = onDefect,
+            onRequestRework = onRequestRework,
             onUndoStart = onUndoStart,
         )
     }
 
     val hasPipeline = detail.all_processes.isNotEmpty()
     val pipelineCard: @Composable () -> Unit = {
-        ProcessPipelineCard(detail = detail, currentUserName = currentUserName)
+        ProcessPipelineCard(detail = detail, currentUserName = currentUserName, onOpenProcess = onOpenProcess)
     }
     val headerCard: @Composable () -> Unit = {
         DetailHeaderCard(detail = detail)
@@ -430,7 +477,7 @@ private fun DetailHeaderCard(detail: TaskDetailDto) {
 
 /** 加工工程の横並びパイプライン。横向きでは画面幅いっぱいに表示し、工程数が多くても見切れないようにする */
 @Composable
-private fun ProcessPipelineCard(detail: TaskDetailDto, currentUserName: String) {
+private fun ProcessPipelineCard(detail: TaskDetailDto, currentUserName: String, onOpenProcess: (processId: Int) -> Unit) {
     Card(
         colors = CardDefaults.cardColors(containerColor = Color.White),
         shape = RoundedCornerShape(16.dp),
@@ -439,7 +486,12 @@ private fun ProcessPipelineCard(detail: TaskDetailDto, currentUserName: String) 
         Column(Modifier.padding(16.dp)) {
             Text("加工工程", color = Color(0xFF9CA3AF), fontSize = 13.sp, fontWeight = FontWeight.Bold)
             Spacer(Modifier.height(10.dp))
-            ProcessPipeline(detail.all_processes, currentId = detail.process.id, currentUserName = currentUserName)
+            ProcessPipeline(
+                detail.all_processes,
+                currentId = detail.process.id,
+                currentUserName = currentUserName,
+                onOpenProcess = onOpenProcess,
+            )
         }
     }
 }
@@ -468,7 +520,7 @@ private fun ColumnScope.DetailInfoCards(
             Spacer(Modifier.height(12.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.fillMaxWidth()) {
                 InfoCell("工程納期", DateUtil.monthDayLabel(process.process_deadline) ?: "—", Modifier.weight(1f))
-                InfoCell("注文数", order.quantity?.let { "$it 個" } ?: "—", Modifier.weight(1f))
+                InfoCell("注文数", order.quantity?.let { "$it" } ?: "—", Modifier.weight(1f), unit = order.quantity?.let { "個" })
             }
             Spacer(Modifier.height(14.dp))
             Row(
@@ -551,6 +603,7 @@ private fun ActionArea(
     onBroken: () -> Unit,
     onRecover: () -> Unit,
     onDefect: () -> Unit,
+    onRequestRework: () -> Unit,
     onUndoStart: () -> Unit,
 ) {
     val feedback = rememberClickFeedback()
@@ -582,6 +635,16 @@ private fun ActionArea(
                         SubButton("中断", Orange400, Modifier.weight(1f), enabled = !actionRunning, onClick = onPause)
                         SubButton("故障中", Red500, Modifier.weight(1f), enabled = !actionRunning, onClick = onBroken)
                         SubButton("不良品報告", Color(0xFFE11D48), Modifier.weight(1f), enabled = !actionRunning, onClick = onDefect)
+                    }
+                    if (detail.process.process_name in jp.co.nse.worker.data.reworkEligibleProcessNames) {
+                        Spacer(Modifier.height(10.dp))
+                        SubButton(
+                            "追加修正が必要",
+                            Color(0xFF9333EA),
+                            Modifier.fillMaxWidth(),
+                            enabled = !actionRunning,
+                            onClick = onRequestRework,
+                        )
                     }
                     Spacer(Modifier.height(8.dp))
                     TextButton(
@@ -710,6 +773,7 @@ private fun InfoCell(
     value: String,
     modifier: Modifier = Modifier,
     valueColor: Color? = null,
+    unit: String? = null,
 ) {
     Column(
         modifier = modifier
@@ -719,17 +783,35 @@ private fun InfoCell(
     ) {
         Text(label, color = Color(0xFF9CA3AF), fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
         Spacer(Modifier.height(2.dp))
-        Text(
-            value,
-            fontWeight = FontWeight.Bold,
-            fontSize = 18.sp,
-            color = valueColor ?: MaterialTheme.colorScheme.onSurface,
-        )
+        // 数字と単位を同じTextに混ぜると、端末フォントによっては桁の大きさがばらついて
+        // 見えることがあるため、数字と単位は別々のTextに分ける
+        Row {
+            Text(
+                value,
+                fontWeight = FontWeight.Bold,
+                fontSize = 18.sp,
+                color = valueColor ?: MaterialTheme.colorScheme.onSurface,
+            )
+            unit?.let {
+                Text(
+                    it,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 18.sp,
+                    color = valueColor ?: MaterialTheme.colorScheme.onSurface,
+                )
+            }
+        }
     }
 }
 
 @Composable
-private fun ProcessPipeline(processes: List<ProcessBriefDto>, currentId: Int, currentUserName: String) {
+private fun ProcessPipeline(
+    processes: List<ProcessBriefDto>,
+    currentId: Int,
+    currentUserName: String,
+    onOpenProcess: (processId: Int) -> Unit,
+) {
+    val feedback = rememberClickFeedback()
     val sorted = processes.sortedBy { it.sort_order }
     Row(
         modifier = Modifier
@@ -748,7 +830,13 @@ private fun ProcessPipeline(processes: List<ProcessBriefDto>, currentId: Int, cu
                 isDone -> Emerald500
                 else -> Color(0xFFE5E7EB)
             }
-            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                modifier = Modifier
+                    .clip(RoundedCornerShape(10.dp))
+                    .clickable(enabled = !isCurrent) { feedback(); onOpenProcess(p.id) }
+                    .padding(4.dp),
+            ) {
                 Box(
                     modifier = Modifier.size(36.dp).clip(CircleShape).background(circleColor),
                     contentAlignment = Alignment.Center,
@@ -874,6 +962,156 @@ private fun DefectDialog(onDismiss: () -> Unit, onSubmit: (Int) -> Unit) {
                 onClick = { feedback(); onSubmit(count) },
                 colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFE11D48)),
             ) { Text("報告する") }
+        },
+        dismissButton = { TextButton(onClick = { feedback(); onDismiss() }) { Text("キャンセル") } },
+    )
+}
+
+/**
+ * 「追加修正が必要」ダイアログ。最終検査・追加修正後検査でのみ表示される（呼び出し元で絞り込み済み）。
+ * [candidates]は現在の工程より前（sort_orderが小さい）の工程一覧で、不良の原因工程をここから選ぶ。
+ * ブラウザ版タブレット画面（resources/js/tablet.js）のロジックに合わせている。
+ */
+@Composable
+private fun ReworkDialog(
+    candidates: List<ProcessBriefDto>,
+    onDismiss: () -> Unit,
+    onSubmit: (targetProcessId: Int, count: Int, content: String, photo: ImageAttachment?) -> Unit,
+) {
+    val feedback = rememberClickFeedback()
+    var selectedTarget by remember { mutableStateOf(candidates.firstOrNull()) }
+    var count by remember { mutableIntStateOf(1) }
+    var content by remember { mutableStateOf("") }
+    var photoPreview by remember { mutableStateOf<Bitmap?>(null) }
+    var photoUpload by remember { mutableStateOf<ImageAttachment?>(null) }
+    var showCamera by remember { mutableStateOf(false) }
+    var photoToAnnotate by remember { mutableStateOf<Bitmap?>(null) }
+
+    if (showCamera) {
+        CameraCaptureDialog(
+            filename = "rework.jpg",
+            onCaptured = { bitmap, _ ->
+                // 撮って出しでは無く、マーキング画面を経由してから確定させる
+                showCamera = false
+                photoToAnnotate = bitmap
+            },
+            onDismiss = { showCamera = false },
+        )
+    }
+
+    photoToAnnotate?.let { raw ->
+        PhotoAnnotateDialog(
+            bitmap = raw,
+            filename = "rework.jpg",
+            onConfirm = { annotated, attachment ->
+                photoPreview = annotated
+                photoUpload = attachment
+                photoToAnnotate = null
+            },
+            onDismiss = { photoToAnnotate = null },
+        )
+    }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("追加修正が必要", fontWeight = FontWeight.Bold) },
+        text = {
+            Column(Modifier.heightIn(max = 420.dp).verticalScroll(rememberScrollState())) {
+                Text("不良の原因となった工程を選んでください。", fontSize = 13.sp, color = Color(0xFF6B7280))
+                Spacer(Modifier.height(8.dp))
+                if (candidates.isEmpty()) {
+                    Text("選択できる前工程がありません。", fontSize = 13.sp, color = Color(0xFF9CA3AF))
+                } else {
+                    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                        candidates.forEach { proc ->
+                            val selected = selectedTarget?.id == proc.id
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(10.dp))
+                                    .background(if (selected) Color(0xFF9333EA).copy(alpha = 0.1f) else Color.Transparent)
+                                    .clickable { feedback(); selectedTarget = proc }
+                                    .padding(horizontal = 4.dp, vertical = 4.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                RadioButton(
+                                    selected = selected,
+                                    onClick = { feedback(); selectedTarget = proc },
+                                    colors = RadioButtonDefaults.colors(selectedColor = Color(0xFF9333EA)),
+                                )
+                                Spacer(Modifier.width(4.dp))
+                                Text(
+                                    proc.process_name,
+                                    fontSize = 15.sp,
+                                    fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
+                                )
+                            }
+                        }
+                    }
+                }
+                Spacer(Modifier.height(12.dp))
+                Text("不良個数", fontSize = 13.sp, color = Color(0xFF6B7280))
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                    OutlinedButton(
+                        onClick = { feedback(); if (count > 1) count-- },
+                        shape = CircleShape,
+                        modifier = Modifier.size(48.dp),
+                        contentPadding = androidx.compose.foundation.layout.PaddingValues(0.dp),
+                    ) { Text("−", fontSize = 20.sp) }
+                    Text("$count", fontSize = 28.sp, fontWeight = FontWeight.ExtraBold)
+                    OutlinedButton(
+                        onClick = { feedback(); count++ },
+                        shape = CircleShape,
+                        modifier = Modifier.size(48.dp),
+                        contentPadding = androidx.compose.foundation.layout.PaddingValues(0.dp),
+                    ) { Text("＋", fontSize = 20.sp) }
+                }
+                Spacer(Modifier.height(12.dp))
+                OutlinedTextField(
+                    value = content,
+                    onValueChange = { content = it },
+                    label = { Text("どこをどう直す必要があるか") },
+                    minLines = 3,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                Spacer(Modifier.height(12.dp))
+                Text("写真（任意）", fontSize = 13.sp, color = Color(0xFF6B7280))
+                if (photoPreview != null) {
+                    Box(modifier = Modifier.padding(top = 8.dp)) {
+                        Image(
+                            bitmap = photoPreview!!.asImageBitmap(),
+                            contentDescription = "撮影した写真",
+                            modifier = Modifier.height(140.dp).clip(RoundedCornerShape(12.dp)),
+                        )
+                        IconButton(
+                            onClick = { feedback(); photoPreview = null; photoUpload = null },
+                            modifier = Modifier
+                                .align(Alignment.TopEnd)
+                                .padding(4.dp)
+                                .size(28.dp)
+                                .clip(CircleShape)
+                                .background(Color(0xCC000000)),
+                        ) {
+                            Icon(Icons.Filled.Close, contentDescription = "写真を削除", tint = Color.White)
+                        }
+                    }
+                }
+                OutlinedButton(
+                    onClick = { feedback(); showCamera = true },
+                    modifier = Modifier.padding(top = 8.dp),
+                ) {
+                    Icon(Icons.Filled.PhotoCamera, contentDescription = null)
+                    Spacer(Modifier.width(8.dp))
+                    Text(if (photoPreview == null) "写真を撮る" else "撮り直す")
+                }
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = { feedback(); selectedTarget?.let { onSubmit(it.id, count, content, photoUpload) } },
+                enabled = selectedTarget != null && content.isNotBlank(),
+                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF9333EA)),
+            ) { Text("登録する") }
         },
         dismissButton = { TextButton(onClick = { feedback(); onDismiss() }) { Text("キャンセル") } },
     )

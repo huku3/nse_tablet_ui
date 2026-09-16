@@ -10,6 +10,7 @@ import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -52,11 +53,10 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import jp.co.nse.worker.appContainer
 import jp.co.nse.worker.data.ApiResult
+import jp.co.nse.worker.ui.components.HeaderLogo
+import jp.co.nse.worker.ui.components.HeaderOverflowMenu
 import jp.co.nse.worker.ui.components.HeaderUserLabel
-import jp.co.nse.worker.ui.components.DashboardButton
-import jp.co.nse.worker.ui.components.MyPageButton
 import jp.co.nse.worker.ui.components.NotificationBell
-import jp.co.nse.worker.ui.components.ProcessAssignmentButton
 import jp.co.nse.worker.ui.components.rememberCurrentUserName
 import jp.co.nse.worker.util.DateUtil
 import jp.co.nse.worker.util.rememberClickFeedback
@@ -116,16 +116,17 @@ fun DrawingScreen(
                     )
                 },
                 navigationIcon = {
-                    IconButton(onClick = { feedback(); onBack() }) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "戻る", tint = MaterialTheme.colorScheme.onPrimary)
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        IconButton(onClick = { feedback(); onBack() }) {
+                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "戻る", tint = MaterialTheme.colorScheme.onPrimary)
+                        }
+                        HeaderLogo()
                     }
                 },
                 actions = {
                     HeaderUserLabel(userName)
                     NotificationBell()
-                    MyPageButton()
-                    DashboardButton()
-                    ProcessAssignmentButton()
+                    HeaderOverflowMenu()
                     IconButton(onClick = { feedback(); reloadKey++ }) {
                         Icon(Icons.Filled.Refresh, contentDescription = "更新", tint = MaterialTheme.colorScheme.onPrimary)
                     }

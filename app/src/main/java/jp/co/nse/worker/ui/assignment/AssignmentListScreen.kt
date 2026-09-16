@@ -56,11 +56,10 @@ import jp.co.nse.worker.data.ManagerRepository
 import jp.co.nse.worker.data.OrderAssignDto
 import jp.co.nse.worker.data.WorkStatus
 import jp.co.nse.worker.ui.components.HeaderTitle
+import jp.co.nse.worker.ui.components.HeaderLogo
+import jp.co.nse.worker.ui.components.HeaderOverflowMenu
 import jp.co.nse.worker.ui.components.HeaderUserLabel
-import jp.co.nse.worker.ui.components.DashboardButton
-import jp.co.nse.worker.ui.components.MyPageButton
 import jp.co.nse.worker.ui.components.NotificationBell
-import jp.co.nse.worker.ui.components.ProcessAssignmentButton
 import jp.co.nse.worker.ui.components.ScrollToBottomFab
 import jp.co.nse.worker.ui.components.ScrollToTopFab
 import jp.co.nse.worker.ui.components.rememberCurrentUserName
@@ -101,11 +100,22 @@ class AssignmentListViewModel(
     var filter by mutableStateOf(DashboardFilter.ALL)
     var statusFilters by mutableStateOf<Set<String>>(emptySet())
 
+    /**
+     * ORDER_LISTモード（受注一覧）は、絞り込みチップに出す全ステータスを明示的にサーバーへ渡して
+     * 取得する。サーバー側はstatus未指定時に出荷済み・請求済みを既定で除外するため、指定しないと
+     * 「出荷済み」を選んでも常に0件になってしまう（絞り込み自体はこれまで通りクライアント側で行う）。
+     */
+    private fun statusQuery(): List<String>? =
+        if (mode == OrderListMode.ORDER_LIST) jp.co.nse.worker.ui.components.OrderStatus.styles.keys.toList() else null
+
     fun load() {
         viewModelScope.launch {
             loading = true
             error = null
-            when (val result = repo.orders()) {
+            // ORDER_LISTは出荷済み等の古い受注も対象に含めるため、並び順（客先納期の早い順）で
+            // それらに枠を取られて直近の受注が見切れないよう、取得件数を多めにしておく
+            val perPage = if (mode == OrderListMode.ORDER_LIST) 500 else 100
+            when (val result = repo.orders(statusQuery(), perPage)) {
                 is ApiResult.Success -> orders = result.data
                 is ApiResult.Failure -> error = result.message
             }
@@ -184,10 +194,18 @@ fun AssignmentListScreen(
     title: String = "割り当て",
     mode: OrderListMode = OrderListMode.ASSIGNMENT,
     isActive: Boolean = true,
+    onSwitchTab: (String) -> Unit = {},
 ) {
     val context = androidx.compose.ui.platform.LocalContext.current
+    val homeTabKey = if (mode == OrderListMode.ASSIGNMENT) "ASSIGN" else "ORDERS"
     val container = context.appContainer
+    // 「割り当て」タブと「受注一覧」タブは同じAssignmentListScreenを異なるmodeで同時に使っており、
+    // 両方ともHomeScreenの同じNavBackStackEntry（ViewModelStoreOwner）を共有している。
+    // key未指定だとviewModel()はクラス単位でインスタンスを共有してしまい、片方のタブが
+    // 先に生成したmode違いのViewModelをもう片方が使い回すことになる
+    // （ステータス絞り込みやページ件数がタブ間で正しく効かない原因）ため、modeごとにキーを分ける
     val vm: AssignmentListViewModel = viewModel(
+        key = "AssignmentListViewModel:$mode",
         factory = viewModelFactory { initializer { AssignmentListViewModel(container.managerRepository, mode) } }
     )
     val lifecycleOwner = androidx.compose.ui.platform.LocalLifecycleOwner.current
@@ -211,16 +229,15 @@ fun AssignmentListScreen(
         topBar = {
             CenterAlignedTopAppBar(
                 title = { HeaderTitle(title) },
+                navigationIcon = { HeaderLogo(onClick = { onSwitchTab(homeTabKey) }) },
                 colors = TopAppBarDefaults.centerAlignedTopAppBarColors(
                     containerColor = MaterialTheme.colorScheme.primary,
                     titleContentColor = MaterialTheme.colorScheme.onPrimary,
                 ),
                 actions = {
                     HeaderUserLabel(userName)
-                    NotificationBell()
-                    MyPageButton()
-                    DashboardButton()
-                    ProcessAssignmentButton()
+                    NotificationBell(isActive = isActive)
+                    HeaderOverflowMenu(currentHomeTab = homeTabKey, onSwitchHomeTab = onSwitchTab)
                     IconButton(onClick = { feedback(); vm.load() }) {
                         Icon(Icons.Filled.Refresh, contentDescription = "更新", tint = MaterialTheme.colorScheme.onPrimary)
                     }
@@ -357,8 +374,6 @@ private fun DashboardRow(
             count = totalCount,
             valueColor = Color(0xFF1F2937),
             selected = filter == DashboardFilter.ALL,
-            enabled = true,
-            alwaysEnabled = true,
             onClick = { onSelect(DashboardFilter.ALL) },
         )
         DashboardCard(
@@ -367,7 +382,6 @@ private fun DashboardRow(
             count = urgentCount,
             valueColor = if (urgentCount > 0) Red500 else Color(0xFF9CA3AF),
             selected = filter == DashboardFilter.URGENT,
-            enabled = urgentCount > 0,
             onClick = { onSelect(DashboardFilter.URGENT) },
         )
         DashboardCard(
@@ -376,7 +390,6 @@ private fun DashboardRow(
             count = todayCount,
             valueColor = if (todayCount > 0) Orange400 else Color(0xFF9CA3AF),
             selected = filter == DashboardFilter.TODAY,
-            enabled = todayCount > 0,
             onClick = { onSelect(DashboardFilter.TODAY) },
         )
         DashboardCard(
@@ -385,7 +398,6 @@ private fun DashboardRow(
             count = unassignedCount,
             valueColor = if (unassignedCount > 0) Amber500 else Green600,
             selected = filter == DashboardFilter.UNASSIGNED,
-            enabled = unassignedCount > 0,
             onClick = { onSelect(DashboardFilter.UNASSIGNED) },
         )
     }
@@ -398,28 +410,30 @@ private fun DashboardCard(
     count: Int,
     valueColor: Color,
     selected: Boolean,
-    enabled: Boolean,
-    alwaysEnabled: Boolean = false,
     onClick: () -> Unit,
 ) {
     val feedback = rememberClickFeedback()
+    val labelColor = if (selected) MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.85f) else Color(0xFF9CA3AF)
+    val countColor = if (selected) MaterialTheme.colorScheme.onPrimary else valueColor
     Card(
-        onClick = { if (enabled || alwaysEnabled) { feedback(); onClick() } },
+        onClick = { feedback(); onClick() },
         modifier = modifier,
-        colors = CardDefaults.cardColors(containerColor = Color.White),
+        colors = CardDefaults.cardColors(
+            containerColor = if (selected) MaterialTheme.colorScheme.primary else Color.White,
+        ),
         elevation = CardDefaults.cardElevation(defaultElevation = if (selected) 4.dp else 1.dp),
         border = androidx.compose.foundation.BorderStroke(
-            width = if (selected) 2.dp else 1.dp,
-            color = if (selected) MaterialTheme.colorScheme.primary else Color(0xFFE5E7EB),
+            width = if (selected) 0.dp else 1.dp,
+            color = if (selected) Color.Transparent else Color(0xFFE5E7EB),
         ),
         shape = RoundedCornerShape(14.dp),
     ) {
         Column(Modifier.padding(horizontal = 12.dp, vertical = 10.dp)) {
-            Text(label, fontSize = 11.sp, color = Color(0xFF9CA3AF), maxLines = 1)
+            Text(label, fontSize = 11.sp, color = labelColor, maxLines = 1)
             Spacer(Modifier.height(2.dp))
             Row(verticalAlignment = Alignment.Bottom) {
-                Text(count.toString(), fontSize = 22.sp, fontWeight = FontWeight.ExtraBold, color = valueColor)
-                Text("件", fontSize = 12.sp, color = valueColor, modifier = Modifier.padding(start = 2.dp, bottom = 2.dp))
+                Text(count.toString(), fontSize = 22.sp, fontWeight = FontWeight.ExtraBold, color = countColor)
+                Text("件", fontSize = 12.sp, color = countColor, modifier = Modifier.padding(start = 2.dp, bottom = 2.dp))
             }
         }
     }
@@ -480,14 +494,18 @@ private fun StatusFilterCard(
     onClick: () -> Unit,
 ) {
     val feedback = rememberClickFeedback()
+    val labelColor = if (selected) MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.85f) else Color(0xFF9CA3AF)
+    val countColor = if (selected) MaterialTheme.colorScheme.onPrimary else color
     Card(
         onClick = { feedback(); onClick() },
         modifier = Modifier.width(StatusFilterCardWidth),
-        colors = CardDefaults.cardColors(containerColor = Color.White),
+        colors = CardDefaults.cardColors(
+            containerColor = if (selected) MaterialTheme.colorScheme.primary else Color.White,
+        ),
         elevation = CardDefaults.cardElevation(defaultElevation = if (selected) 4.dp else 1.dp),
         border = androidx.compose.foundation.BorderStroke(
-            width = if (selected) 2.dp else 1.dp,
-            color = if (selected) color else Color(0xFFE5E7EB),
+            width = if (selected) 0.dp else 1.dp,
+            color = if (selected) Color.Transparent else Color(0xFFE5E7EB),
         ),
         shape = RoundedCornerShape(14.dp),
     ) {
@@ -498,7 +516,7 @@ private fun StatusFilterCard(
             Text(
                 label,
                 fontSize = 11.sp,
-                color = Color(0xFF9CA3AF),
+                color = labelColor,
                 maxLines = 1,
                 softWrap = false,
                 textAlign = androidx.compose.ui.text.style.TextAlign.Center,
@@ -509,7 +527,7 @@ private fun StatusFilterCard(
                 count.toString(),
                 fontSize = 20.sp,
                 fontWeight = FontWeight.ExtraBold,
-                color = color,
+                color = countColor,
                 textAlign = androidx.compose.ui.text.style.TextAlign.Center,
                 modifier = Modifier.fillMaxWidth(),
             )

@@ -2,8 +2,11 @@ package jp.co.nse.worker.data
 
 import android.content.Context
 import com.jakewharton.retrofit2.converter.kotlinx.serialization.asConverterFactory
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.launch
 import kotlinx.serialization.json.Json
 import okhttp3.Interceptor
 import okhttp3.MediaType.Companion.toMediaType
@@ -26,11 +29,16 @@ class AppContainer(context: Context) {
     }
 
     init {
-        // 起動時に永続化済みのトークン・ベースURLをメモリへ展開する（同期）。
-        runBlocking {
+        // 起動時に永続化済みのトークン・ベースURLをメモリへ展開する。
+        // 以前はrunBlockingでメインスレッドを同期的にブロックしていたが、Application.onCreate()内で
+        // 実行されるためDataStoreの読み込みが遅い端末・タイミングでは起動直後にANR（白画面フリーズ）
+        // を招く恐れがあった。cachedToken/cachedBaseUrlは未取得時も安全な既定値を返すため、
+        // 読み込みは非同期にし、完了後にrebuildApi()でRetrofitへ反映する。
+        CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate).launch {
             val token = settings.tokenFlow.first()
             val baseUrl = settings.baseUrlFlow.first()
             settings.primeCache(token, baseUrl)
+            rebuildApi()
         }
     }
 
@@ -60,6 +68,27 @@ class AppContainer(context: Context) {
 
     /** 担当工程マスタ画面を開くコールバック。AppNavが起動時に設定する */
     var openProcessAssignments: (() -> Unit)? = null
+
+    /** 不具合・要望の報告画面を開くコールバック。AppNavが起動時に設定する */
+    var openReport: (() -> Unit)? = null
+
+    /** 届いた報告の一覧画面を開くコールバック。AppNavが起動時に設定する */
+    var openReportList: (() -> Unit)? = null
+
+    /**
+     * ヘッダーのロゴタップで作業一覧（ホーム）まで戻るコールバック。AppNavが起動時に設定する。
+     * ホーム画面内のタブ（作業一覧・割り当て・受注一覧・在庫・出荷カレンダー）自体は
+     * このコールバックを使わず、タブ切替（pagerState）で直接作業一覧タブへ移動する。
+     */
+    var openHome: (() -> Unit)? = null
+
+    /**
+     * ヘッダーメニューのタブ切替項目（作業一覧・割り当て・受注一覧・在庫・出荷カレンダー）から、
+     * ホーム画面の指定タブへ遷移するコールバック。AppNavが起動時に設定する。
+     * タブ名は[jp.co.nse.worker.ui.HomeTab.name]の文字列（例: "TASKS"）。
+     * ホーム画面内のタブ自体はこのコールバックを使わず、タブ切替（pagerState）で直接移動する。
+     */
+    var openHomeTab: ((tabKey: String) -> Unit)? = null
 
     fun rebuildApi() {
         api = buildApi()

@@ -1,8 +1,12 @@
 package jp.co.nse.worker.data
 
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
+import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.MultipartBody
+import okhttp3.RequestBody.Companion.toRequestBody
 import retrofit2.Response
 import java.io.File
 
@@ -32,6 +36,9 @@ fun UserDto.canViewShippingCalendar(): Boolean = hasFeature("shipping.calendar")
 
 /** 担当工程マスタ（マイページからの導線）を見る権限を持つか */
 fun UserDto.canManageProcessAssignments(): Boolean = hasFeature("worker_process_assignments.view")
+
+/** 不具合・要望の報告一覧・対応管理を見る権限を持つか */
+fun UserDto.canManageReports(): Boolean = hasFeature("reports.manage")
 
 /** Retrofit例外を日本語メッセージへ変換する */
 internal fun Throwable.toUserMessage(): String = when (this) {
@@ -67,7 +74,7 @@ class AuthRepository(
 ) {
     suspend fun login(email: String, password: String): ApiResult<UserDto> = try {
         val res = apiProvider().login(LoginRequest(email, password))
-        settings.saveToken(res.token, res.user.name, res.user.role, res.user.canAssign(), res.user.canViewOrders(), res.user.canViewShippingCalendar(), res.user.canManageProcessAssignments(), res.user.color)
+        settings.saveToken(res.token, res.user.name, res.user.role, res.user.canAssign(), res.user.canViewOrders(), res.user.canViewShippingCalendar(), res.user.canManageProcessAssignments(), res.user.canManageReports(), res.user.color)
         ApiResult.Success(res.user)
     } catch (e: retrofit2.HttpException) {
         val msg = e.response()?.errorBody()?.string()?.let {
@@ -88,7 +95,7 @@ class AuthRepository(
     /** アカウントID＋社員番号でログイン */
     suspend fun loginById(userId: Int, employeeNumber: String): ApiResult<UserDto> = try {
         val res = apiProvider().loginById(LoginByIdRequest(userId, employeeNumber))
-        settings.saveToken(res.token, res.user.name, res.user.role, res.user.canAssign(), res.user.canViewOrders(), res.user.canViewShippingCalendar(), res.user.canManageProcessAssignments(), res.user.color)
+        settings.saveToken(res.token, res.user.name, res.user.role, res.user.canAssign(), res.user.canViewOrders(), res.user.canViewShippingCalendar(), res.user.canManageProcessAssignments(), res.user.canManageReports(), res.user.color)
         ApiResult.Success(res.user)
     } catch (e: retrofit2.HttpException) {
         val msg = e.response()?.errorBody()?.string()?.let {
@@ -104,7 +111,12 @@ class AuthRepository(
         settings.clearToken()
     }
 
-    fun isLoggedIn(): Boolean = settings.cachedToken != null
+    /**
+     * cachedTokenはAppContainer初期化時に非同期でプライムされるため、起動直後の一瞬は
+     * まだ反映されていない可能性がある。スプラッシュ画面からの初回判定でその隙間を
+     * ログアウト扱いにしてしまわないよう、DataStoreを直接（suspendで）読む。
+     */
+    suspend fun isLoggedIn(): Boolean = settings.tokenFlow.first() != null
 
     /** マイページでメイン色を変更する。成功したら再ログインなしで即座に画面へ反映する */
     suspend fun updateMyColor(hex: String): ApiResult<Unit> = try {
@@ -182,6 +194,34 @@ class WorkerRepository(
         ApiResult.Failure(e.toUserMessage())
     }
 
+    /** 「追加修正が必要」（最終検査・追加修正後検査での手直し登録）。photoは任意（不良箇所の写真） */
+    suspend fun reportRework(
+        orderId: Int,
+        processId: Int,
+        targetProcessId: Int,
+        count: Int,
+        content: String,
+        photo: ImageAttachment? = null,
+    ): ApiResult<Unit> = try {
+        fun text(value: String) = value.toRequestBody("text/plain".toMediaType())
+        val photoPart = photo?.let {
+            val requestBody = it.bytes.toRequestBody(it.mimeType.toMediaType())
+            MultipartBody.Part.createFormData("attachments[]", it.filename, requestBody)
+        }
+        handleAction(
+            apiProvider().reportRework(
+                orderId = orderId,
+                processId = processId,
+                targetProcessId = text(targetProcessId.toString()),
+                count = text(count.toString()),
+                content = text(content),
+                attachments = photoPart,
+            ),
+        )
+    } catch (e: Throwable) {
+        ApiResult.Failure(e.toUserMessage())
+    }
+
     suspend fun confirmMaterial(orderId: Int): ApiResult<Unit> = try {
         handleAction(apiProvider().confirmMaterial(orderId))
     } catch (e: Throwable) {
@@ -246,7 +286,43 @@ class WorkerRepository(
     } catch (e: Throwable) {
         ApiResult.Failure(e.toUserMessage())
     }
+
+    /** 不具合・UI改善要望を管理者へ報告する。端末情報は呼び出し側で入力させず自動で付与する */
+    suspend fun submitReport(
+        category: ReportCategory,
+        title: String,
+        body: String,
+        screenName: String?,
+        screenshot: ImageAttachment?,
+    ): ApiResult<Unit> = try {
+        fun text(value: String) = value.toRequestBody("text/plain".toMediaType())
+        val screenshotPart = screenshot?.let {
+            val requestBody = it.bytes.toRequestBody(it.mimeType.toMediaType())
+            MultipartBody.Part.createFormData("screenshot", it.filename, requestBody)
+        }
+        handleAction(
+            apiProvider().submitReport(
+                category = text(category.apiValue),
+                title = text(title),
+                body = text(body),
+                screenName = screenName?.let { text(it) },
+                appVersion = text(jp.co.nse.worker.BuildConfig.VERSION_NAME),
+                osVersion = text("Android ${android.os.Build.VERSION.RELEASE}"),
+                deviceModel = text(android.os.Build.MODEL),
+                screenshot = screenshotPart,
+            ),
+        )
+    } catch (e: Throwable) {
+        ApiResult.Failure(e.toUserMessage())
+    }
 }
+
+/** 画像添付の中身（報告のスクリーンショット・手直し登録の写真など共通）。呼び出し側（画面層）でデコードして作る */
+data class ImageAttachment(
+    val bytes: ByteArray,
+    val filename: String,
+    val mimeType: String,
+)
 
 /** アプリ自動アップデート：最新版確認とAPKダウンロード */
 class UpdateRepository(
@@ -297,8 +373,9 @@ class UpdateRepository(
 class ManagerRepository(
     private val apiProvider: () -> ApiService,
 ) {
-    suspend fun orders(): ApiResult<List<OrderAssignDto>> = try {
-        ApiResult.Success(apiProvider().orders().data)
+    /** statusesを渡すとサーバー側でそのステータスに絞り込む（省略時は出荷済み・請求済みを除いた既定セット） */
+    suspend fun orders(statuses: List<String>? = null, perPage: Int = 100): ApiResult<List<OrderAssignDto>> = try {
+        ApiResult.Success(apiProvider().orders(perPage = perPage, statuses = statuses).data)
     } catch (e: Throwable) {
         ApiResult.Failure(e.toUserMessage())
     }
@@ -468,6 +545,47 @@ class ManagerRepository(
     /** 出荷完了を取り消す（出荷完了状態以外はサーバー側で拒否される） */
     suspend fun unshipOrder(orderId: Int): ApiResult<Unit> = try {
         handleAction(apiProvider().unshipOrder(orderId))
+    } catch (e: Throwable) {
+        ApiResult.Failure(e.toUserMessage())
+    }
+
+    /** 不具合・UI改善要望の報告一覧（新しい順） */
+    suspend fun reports(): ApiResult<List<ReportDto>> = try {
+        ApiResult.Success(apiProvider().reports())
+    } catch (e: Throwable) {
+        ApiResult.Failure(e.toUserMessage())
+    }
+
+    /** 報告詳細 */
+    suspend fun reportDetail(reportId: Int): ApiResult<ReportDto> = try {
+        ApiResult.Success(apiProvider().reportDetail(reportId))
+    } catch (e: Throwable) {
+        ApiResult.Failure(e.toUserMessage())
+    }
+
+    /** 報告に添付されたスクリーンショットをバイト列として取得する */
+    suspend fun reportScreenshotBytes(reportId: Int): ApiResult<ByteArray> = try {
+        val res = apiProvider().reportScreenshot(reportId)
+        if (res.isSuccessful) {
+            val bytes = withContext(Dispatchers.IO) { res.body()?.bytes() }
+            if (bytes != null) ApiResult.Success(bytes) else ApiResult.Failure("画像の取得に失敗しました。")
+        } else {
+            ApiResult.Failure("画像の取得に失敗しました（${res.code()}）。")
+        }
+    } catch (e: Throwable) {
+        ApiResult.Failure(e.toUserMessage())
+    }
+
+    /** 報告の対応ステータスを変更する */
+    suspend fun updateReportStatus(reportId: Int, status: ReportStatus): ApiResult<Unit> = try {
+        handleAction(apiProvider().updateReportStatus(reportId, UpdateReportStatusRequest(status.apiValue)))
+    } catch (e: Throwable) {
+        ApiResult.Failure(e.toUserMessage())
+    }
+
+    /** 有給休暇・休暇取得状況。start/endを省略すると当月分、departmentで課を絞り込める（"yyyy-MM-dd"） */
+    suspend fun leaves(start: String? = null, end: String? = null, department: String? = null): ApiResult<LeavesResponse> = try {
+        ApiResult.Success(apiProvider().leaves(start, end, department))
     } catch (e: Throwable) {
         ApiResult.Failure(e.toUserMessage())
     }

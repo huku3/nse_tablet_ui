@@ -16,6 +16,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.relocation.BringIntoViewRequester
+import androidx.compose.foundation.relocation.bringIntoViewRequester
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -75,12 +77,11 @@ import jp.co.nse.worker.data.ShippingCalendarDayDto
 import jp.co.nse.worker.data.ShippingCalendarMonthDto
 import jp.co.nse.worker.data.ShippingCalendarOrderDto
 import jp.co.nse.worker.ui.components.HeaderTitle
+import jp.co.nse.worker.ui.components.HeaderLogo
+import jp.co.nse.worker.ui.components.HeaderOverflowMenu
 import jp.co.nse.worker.ui.components.HeaderUserLabel
-import jp.co.nse.worker.ui.components.DashboardButton
-import jp.co.nse.worker.ui.components.MyPageButton
 import jp.co.nse.worker.ui.components.NotificationBell
 import jp.co.nse.worker.ui.components.OrderStatusBadge
-import jp.co.nse.worker.ui.components.ProcessAssignmentButton
 import jp.co.nse.worker.ui.components.rememberCurrentUserName
 import jp.co.nse.worker.ui.scan.startBarcodeScan
 import jp.co.nse.worker.ui.theme.Gray500
@@ -305,6 +306,7 @@ fun ShippingCalendarScreen(
     onOpenCheckSheet: (orderId: Int) -> Unit,
     onLogout: () -> Unit = {},
     isActive: Boolean = true,
+    onSwitchTab: (String) -> Unit = {},
 ) {
     val feedback = rememberClickFeedback()
     val context = LocalContext.current
@@ -352,12 +354,11 @@ fun ShippingCalendarScreen(
         topBar = {
             CenterAlignedTopAppBar(
                 title = { HeaderTitle("出荷カレンダー") },
+                navigationIcon = { HeaderLogo(onClick = { onSwitchTab("SHIPPING") }) },
                 actions = {
                     HeaderUserLabel(userName)
-                    NotificationBell()
-                    MyPageButton()
-                    DashboardButton()
-                    ProcessAssignmentButton()
+                    NotificationBell(isActive = isActive)
+                    HeaderOverflowMenu(currentHomeTab = "SHIPPING", onSwitchHomeTab = onSwitchTab)
                     IconButton(onClick = { feedback(); vm.load() }) {
                         Icon(Icons.Filled.Refresh, contentDescription = "更新", tint = MaterialTheme.colorScheme.onPrimary)
                     }
@@ -434,6 +435,7 @@ fun ShippingCalendarScreen(
     }
 }
 
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
 private fun ShippingCalendarContent(
     month: ShippingCalendarMonthDto,
@@ -457,6 +459,13 @@ private fun ShippingCalendarContent(
             .firstOrNull { DateUtil.parse(it.date) == selectedDate }
             ?.orders
             .orEmpty()
+    }
+
+    // 日付セルをタップした直後、選択日の出荷一覧（カレンダーの下）が画面外のままにならないよう、
+    // 選択日が変わるたびにその一覧が見える位置まで自動でスクロールする
+    val selectedDayListBringIntoViewRequester = remember { BringIntoViewRequester() }
+    LaunchedEffect(selectedDate) {
+        selectedDayListBringIntoViewRequester.bringIntoView()
     }
 
     Column(
@@ -500,17 +509,21 @@ private fun ShippingCalendarContent(
             HorizontalDivider(color = Color(0xFFE5E7EB))
             Spacer(Modifier.height(Space4))
 
-            SelectedDayList(
-                date = selectedDate,
-                orders = selectedDayOrders,
-                busyOrderIds = busyOrderIds,
-                bulkBusy = bulkBusy,
-                bulkUndoMessage = bulkUndoMessage,
-                onOpenCheckSheet = onOpenCheckSheet,
-                onToggleOrder = onToggleOrder,
-                onBulkComplete = { onBulkComplete(selectedDate) },
-                onUndoBulk = onUndoBulk,
-            )
+            Column(
+                modifier = Modifier.bringIntoViewRequester(selectedDayListBringIntoViewRequester),
+            ) {
+                SelectedDayList(
+                    date = selectedDate,
+                    orders = selectedDayOrders,
+                    busyOrderIds = busyOrderIds,
+                    bulkBusy = bulkBusy,
+                    bulkUndoMessage = bulkUndoMessage,
+                    onOpenCheckSheet = onOpenCheckSheet,
+                    onToggleOrder = onToggleOrder,
+                    onBulkComplete = { onBulkComplete(selectedDate) },
+                    onUndoBulk = onUndoBulk,
+                )
+            }
             Spacer(Modifier.height(Space6))
         }
     }
@@ -835,13 +848,34 @@ private fun ShippingOrderRow(
         }
         Spacer(Modifier.width(Space3))
         Column(horizontalAlignment = Alignment.End) {
-            Text(
-                order.quantity?.let { "$it 個" } ?: "—",
-                fontFamily = Mono,
-                fontSize = 16.sp,
-                fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.onSurface.copy(alpha = dim),
-            )
+            if (order.quantity != null) {
+                // 数字と単位を同じTextに混ぜると、端末フォントによっては桁の大きさが
+                // ばらついて見えることがあるため、数字と単位は別々のTextに分ける
+                Row {
+                    Text(
+                        "${order.quantity}",
+                        fontFamily = Mono,
+                        fontSize = 16.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = dim),
+                    )
+                    Text(
+                        " 個",
+                        fontFamily = Mono,
+                        fontSize = 16.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = dim),
+                    )
+                }
+            } else {
+                Text(
+                    "—",
+                    fontFamily = Mono,
+                    fontSize = 16.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = dim),
+                )
+            }
             Spacer(Modifier.height(Space1 / 2))
             Text(
                 if (completed) "完了" else "未出荷",
@@ -919,7 +953,7 @@ private fun ShipConfirmDialog(
                     ShipInfoRow("客先名", order.customer_name ?: "—")
                     ShipInfoRow("発注番号", order.po_number ?: "—")
                     ShipInfoRow("品名", order.part_name ?: "—")
-                    ShipInfoRow("数量", order.quantity?.let { "$it 個" } ?: "—")
+                    ShipInfoRow("数量", order.quantity?.let { "$it" } ?: "—", unit = order.quantity?.let { "個" })
                     ShipInfoRow("納期", order.delivery_date ?: "—")
                 }
 
@@ -969,9 +1003,16 @@ private fun ShipConfirmDialog(
 }
 
 @Composable
-private fun ShipInfoRow(label: String, value: String) {
+private fun ShipInfoRow(label: String, value: String, unit: String? = null) {
     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
         Text(label, fontSize = 13.sp, color = Gray500, fontWeight = FontWeight.SemiBold)
-        Text(value, fontSize = 14.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
+        // 数字と単位を同じTextに混ぜると、端末フォントによっては桁の大きさがばらついて
+        // 見えることがあるため、数字と単位は別々のTextに分ける
+        Row {
+            Text(value, fontSize = 14.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
+            unit?.let {
+                Text(it, fontSize = 14.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
+            }
+        }
     }
 }

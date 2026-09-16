@@ -1,12 +1,16 @@
 package jp.co.nse.worker.data
 
+import okhttp3.MultipartBody
+import okhttp3.RequestBody
 import okhttp3.ResponseBody
 import retrofit2.Response
 import retrofit2.http.Body
 import retrofit2.http.DELETE
 import retrofit2.http.GET
+import retrofit2.http.Multipart
 import retrofit2.http.PATCH
 import retrofit2.http.POST
+import retrofit2.http.Part
 import retrofit2.http.Path
 import retrofit2.http.Query
 import retrofit2.http.Streaming
@@ -76,6 +80,18 @@ interface ApiService {
         @Body body: DefectRequest,
     ): Response<ActionResponse>
 
+    /** 「追加修正が必要」（最終検査・追加修正後検査での手直し登録）。写真添付は任意 */
+    @Multipart
+    @POST("orders/{order}/processes/{process}/rework")
+    suspend fun reportRework(
+        @Path("order") orderId: Int,
+        @Path("process") processId: Int,
+        @Part("target_process_id") targetProcessId: RequestBody,
+        @Part("count") count: RequestBody,
+        @Part("content") content: RequestBody,
+        @Part attachments: MultipartBody.Part?,
+    ): Response<ActionResponse>
+
     @PATCH("orders/{order}/material-confirm")
     suspend fun confirmMaterial(@Path("order") orderId: Int): Response<ActionResponse>
 
@@ -126,7 +142,15 @@ interface ApiService {
     suspend fun deleteMaterialTransaction(@Path("id") id: Int): Response<ActionResponse>
 
     @GET("orders")
-    suspend fun orders(@Query("per_page") perPage: Int = 100): OrdersPage
+    /**
+     * [statuses]省略時、サーバー側は出荷済み・請求済みをデフォルトで除外する
+     * （App\Http\Controllers\Api\OrderController::index）。受注一覧のステータス絞り込みで
+     * 「出荷済み」等を正しく取得するには、選択中のステータスを明示的に渡す必要がある
+     */
+    suspend fun orders(
+        @Query("per_page") perPage: Int = 100,
+        @Query("status[]") statuses: List<String>? = null,
+    ): OrdersPage
 
     @GET("orders/{order}")
     suspend fun orderDetail(@Path("order") orderId: Int): OrderAssignDto
@@ -188,4 +212,46 @@ interface ApiService {
     /** 通知を1件だけ既読にする */
     @POST("notifications/{id}/read")
     suspend fun markNotificationRead(@Path("id") id: String): Response<ActionResponse>
+
+    /** 不具合・UI改善要望の報告。screenshot は任意（未添付なら null を渡す） */
+    @Multipart
+    @POST("reports")
+    suspend fun submitReport(
+        @Part("category") category: RequestBody,
+        @Part("title") title: RequestBody,
+        @Part("body") body: RequestBody,
+        @Part("screen_name") screenName: RequestBody?,
+        @Part("app_version") appVersion: RequestBody,
+        @Part("os_version") osVersion: RequestBody,
+        @Part("device_model") deviceModel: RequestBody,
+        @Part screenshot: MultipartBody.Part?,
+    ): Response<ActionResponse>
+
+    /** 報告一覧（管理者向け、reports.manage権限が必要） */
+    @GET("reports")
+    suspend fun reports(): List<ReportDto>
+
+    /** 報告詳細（管理者向け） */
+    @GET("reports/{report}")
+    suspend fun reportDetail(@Path("report") reportId: Int): ReportDto
+
+    /** 報告に添付されたスクリーンショット画像（管理者向け、認証ヘッダ付き） */
+    @Streaming
+    @GET("reports/{report}/screenshot")
+    suspend fun reportScreenshot(@Path("report") reportId: Int): Response<ResponseBody>
+
+    /** 報告の対応ステータスを変更する（管理者向け） */
+    @PATCH("reports/{report}/status")
+    suspend fun updateReportStatus(
+        @Path("report") reportId: Int,
+        @Body body: UpdateReportStatusRequest,
+    ): Response<ActionResponse>
+
+    /** 有給休暇・休暇取得状況（長島勤怠システム連携）。start/end省略時は当月 */
+    @GET("leaves")
+    suspend fun leaves(
+        @Query("start") start: String?,
+        @Query("end") end: String?,
+        @Query("department") department: String?,
+    ): LeavesResponse
 }

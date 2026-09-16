@@ -138,4 +138,13 @@ object DateUtil {
         }
         return count
     }
+
+    /** [from] の次の稼働日（土日・休日マスタをスキップ。[from] 自体は含まない） */
+    fun nextWorkingDay(from: LocalDate, holidays: Set<String>, overrides: Set<String>): LocalDate {
+        var cursor = from.plusDays(1)
+        while (!isWorkingDay(cursor, holidays, overrides)) {
+            cursor = cursor.plusDays(1)
+        }
+        return cursor
+    }
 }

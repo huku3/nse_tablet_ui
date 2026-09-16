@@ -60,7 +60,7 @@ fun SplashScreen(onFinished: () -> Unit) {
         finish()
     }
 
-    val logoWidth = 220.dp
+    val logoWidth = 280.dp
     val logoHeight = logoWidth * LOGO_ASPECT
 
     Box(
@@ -80,30 +80,30 @@ fun SplashScreen(onFinished: () -> Unit) {
             Spacer(Modifier.height(20.dp))
             Box(
                 modifier = Modifier
-                    .height(3.dp)
-                    .width(48.dp)
+                    .height(4.dp)
+                    .width(56.dp)
                     .background(UnderlineColor),
             )
-            Spacer(Modifier.height(16.dp))
+            Spacer(Modifier.height(20.dp))
             Text(
                 SYSTEM_NAME,
                 color = SysNameColor,
-                fontSize = 22.sp,
+                fontSize = 27.sp,
                 fontWeight = FontWeight.Bold,
                 letterSpacing = 1.sp,
             )
-            Spacer(Modifier.height(8.dp))
+            Spacer(Modifier.height(10.dp))
             Text(
                 CATCHPHRASE,
                 color = CatchphraseColor,
-                fontSize = 14.sp,
+                fontSize = 17.sp,
                 letterSpacing = 1.sp,
             )
             Spacer(Modifier.height(64.dp))
             Text(
-                "Tap Start",
+                "Tap to Start",
                 color = Color(0xFF9CA3AF),
-                fontSize = 13.sp,
+                fontSize = 14.sp,
                 fontWeight = FontWeight.SemiBold,
                 letterSpacing = 2.sp,
                 modifier = Modifier.padding(bottom = 24.dp),

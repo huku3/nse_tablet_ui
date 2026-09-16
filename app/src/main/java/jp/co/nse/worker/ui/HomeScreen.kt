@@ -1,19 +1,11 @@
 package jp.co.nse.worker.ui
 
-import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.pager.HorizontalPager
-import androidx.compose.foundation.pager.PagerState
 import androidx.compose.foundation.pager.rememberPagerState
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Assignment
 import androidx.compose.material.icons.automirrored.filled.ListAlt
@@ -21,7 +13,6 @@ import androidx.compose.material.icons.filled.Group
 import androidx.compose.material.icons.filled.Inventory2
 import androidx.compose.material.icons.filled.LocalShipping
 import androidx.compose.material3.Icon
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Scaffold
@@ -31,11 +22,8 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.unit.dp
 import jp.co.nse.worker.appContainer
 import jp.co.nse.worker.ui.assignment.AssignmentListScreen
 import jp.co.nse.worker.ui.assignment.OrderListMode
@@ -45,12 +33,29 @@ import jp.co.nse.worker.ui.tasklist.TaskListScreen
 import jp.co.nse.worker.util.rememberClickFeedback
 import kotlinx.coroutines.launch
 
-private enum class HomeTab(val label: String, val icon: ImageVector) {
+enum class HomeTab(val label: String, val icon: ImageVector) {
     TASKS("作業一覧", Icons.AutoMirrored.Filled.ListAlt),
     ASSIGN("割り当て", Icons.Filled.Group),
     ORDERS("受注一覧", Icons.AutoMirrored.Filled.Assignment),
     INVENTORY("在庫", Icons.Filled.Inventory2),
     SHIPPING("出荷カレンダー", Icons.Filled.LocalShipping),
+}
+
+/**
+ * 実際に権限を持つタブだけを返す（割り当て＝checksheet.assign_worker、受注一覧＝orders.view、
+ * 出荷カレンダー＝shipping.calendar）。[HomeScreen]の下部タブと、ヘッダーの
+ * [jp.co.nse.worker.ui.components.HeaderOverflowMenu]のタブ切替メニューの両方から参照される。
+ */
+fun visibleHomeTabs(canAssign: Boolean, canViewOrders: Boolean, canViewShipping: Boolean): List<HomeTab> = buildList {
+    add(HomeTab.TASKS)
+    // 割り当て（checksheet.assign_worker）と受注一覧（orders.view）は独立した別機能のため、
+    // 両方の権限を持つアカウントには両方のタブを表示する
+    if (canAssign) add(HomeTab.ASSIGN)
+    if (canViewOrders) add(HomeTab.ORDERS)
+    // 在庫は受注一覧権限（orders.view、閲覧のみ）か割り当て権限（checksheet.assign_worker、
+    // 閲覧＋入荷・引当等の操作）のどちらかを持つアカウントに表示する
+    if (canViewOrders || canAssign) add(HomeTab.INVENTORY)
+    if (canViewShipping) add(HomeTab.SHIPPING)
 }
 
 /**
@@ -67,6 +72,7 @@ fun HomeScreen(
     onLogout: () -> Unit,
     completedProcessName: String? = null,
     onCompletedMessageShown: () -> Unit = {},
+    initialTab: String = "",
 ) {
     val context = androidx.compose.ui.platform.LocalContext.current
     val container = context.appContainer
@@ -75,17 +81,17 @@ fun HomeScreen(
     val canViewShipping by container.settings.canViewShippingFlow.collectAsState(initial = false)
 
     val tabs = remember(canAssign, canViewOrders, canViewShipping) {
-        buildList {
-            add(HomeTab.TASKS)
-            // 割り当て（checksheet.assign_worker）と受注一覧（orders.view）は独立した別機能のため、
-            // 両方の権限を持つアカウントには両方のタブを表示する
-            if (canAssign) add(HomeTab.ASSIGN)
-            if (canViewOrders) add(HomeTab.ORDERS)
-            // 在庫は受注一覧権限（orders.view、閲覧のみ）か割り当て権限（checksheet.assign_worker、
-            // 閲覧＋入荷・引当等の操作）のどちらかを持つアカウントに表示する
-            if (canViewOrders || canAssign) add(HomeTab.INVENTORY)
-            if (canViewShipping) add(HomeTab.SHIPPING)
-        }
+        visibleHomeTabs(canAssign, canViewOrders, canViewShipping)
+    }
+
+    val feedback = rememberClickFeedback()
+    val scope = rememberCoroutineScope()
+    val initialPage = remember(tabs) { tabs.indexOfFirst { it.name == initialTab }.coerceAtLeast(0) }
+    val pagerState = rememberPagerState(initialPage = initialPage, pageCount = { tabs.size })
+    // ヘッダーロゴ・オーバーフローメニューのタブ切替項目から、指定したタブへ直接切り替える
+    val switchTab: (String) -> Unit = { key ->
+        val index = tabs.indexOfFirst { it.name == key }
+        if (index >= 0) scope.launch { pagerState.animateScrollToPage(index) }
     }
 
     @Composable
@@ -97,8 +103,9 @@ fun HomeScreen(
                 completedProcessName = completedProcessName,
                 onCompletedMessageShown = onCompletedMessageShown,
                 isActive = isActive,
+                onSwitchTab = switchTab,
             )
-            HomeTab.ASSIGN -> AssignmentListScreen(onOpenOrder = onOpenOrder, onLogout = onLogout, isActive = isActive)
+            HomeTab.ASSIGN -> AssignmentListScreen(onOpenOrder = onOpenOrder, onLogout = onLogout, isActive = isActive, onSwitchTab = switchTab)
             // 受注一覧のみの権限では担当者割り当ての編集はできないため、タップ先は
             // 工程管理チェックシート（閲覧のみ）にする
             HomeTab.ORDERS -> AssignmentListScreen(
@@ -107,9 +114,10 @@ fun HomeScreen(
                 title = "受注一覧",
                 mode = OrderListMode.ORDER_LIST,
                 isActive = isActive,
+                onSwitchTab = switchTab,
             )
-            HomeTab.INVENTORY -> InventoryScreen(onLogout = onLogout, isActive = isActive)
-            HomeTab.SHIPPING -> ShippingCalendarScreen(onOpenCheckSheet = onOpenCheckSheet, onLogout = onLogout, isActive = isActive)
+            HomeTab.INVENTORY -> InventoryScreen(onLogout = onLogout, isActive = isActive, onSwitchTab = switchTab)
+            HomeTab.SHIPPING -> ShippingCalendarScreen(onOpenCheckSheet = onOpenCheckSheet, onLogout = onLogout, isActive = isActive, onSwitchTab = switchTab)
         }
     }
 
@@ -117,10 +125,6 @@ fun HomeScreen(
         TabContent(HomeTab.TASKS, isActive = true)
         return
     }
-
-    val feedback = rememberClickFeedback()
-    val scope = rememberCoroutineScope()
-    val pagerState = rememberPagerState(pageCount = { tabs.size })
 
     Scaffold(
         bottomBar = {
@@ -153,41 +157,6 @@ fun HomeScreen(
                 modifier = Modifier.weight(1f).fillMaxWidth(),
             ) { page ->
                 TabContent(tabs[page], isActive = pagerState.currentPage == page)
-            }
-
-            // 横スワイプできることを示す薄いマーク。タップでもページを切り替えられる
-            PageIndicatorDots(
-                pageCount = tabs.size,
-                pagerState = pagerState,
-                onSelect = { index -> feedback(); scope.launch { pagerState.animateScrollToPage(index) } },
-            )
-        }
-    }
-}
-
-@Composable
-private fun PageIndicatorDots(pageCount: Int, pagerState: PagerState, onSelect: (Int) -> Unit) {
-    Row(
-        modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp),
-        horizontalArrangement = Arrangement.Center,
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        repeat(pageCount) { index ->
-            val selected = index == pagerState.currentPage
-            Box(
-                modifier = Modifier
-                    .size(44.dp)
-                    .clickable { onSelect(index) },
-                contentAlignment = Alignment.Center,
-            ) {
-                Box(
-                    modifier = Modifier
-                        .size(if (selected) 8.dp else 6.dp)
-                        .clip(CircleShape)
-                        .background(
-                            MaterialTheme.colorScheme.onSurface.copy(alpha = if (selected) 0.45f else 0.18f),
-                        ),
-                )
             }
         }
     }

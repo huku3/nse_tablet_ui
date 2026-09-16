@@ -74,11 +74,10 @@ import jp.co.nse.worker.data.WorkStatus
 import jp.co.nse.worker.ui.assignment.DeadlineCalendarDialog
 import jp.co.nse.worker.ui.assignment.WorkerPickerDialog
 import jp.co.nse.worker.ui.components.HeaderTitle
+import jp.co.nse.worker.ui.components.HeaderLogo
+import jp.co.nse.worker.ui.components.HeaderOverflowMenu
 import jp.co.nse.worker.ui.components.HeaderUserLabel
-import jp.co.nse.worker.ui.components.DashboardButton
-import jp.co.nse.worker.ui.components.MyPageButton
 import jp.co.nse.worker.ui.components.NotificationBell
-import jp.co.nse.worker.ui.components.ProcessAssignmentButton
 import jp.co.nse.worker.ui.components.OrderStatus
 import jp.co.nse.worker.ui.components.ScrollToBottomFab
 import jp.co.nse.worker.ui.components.ScrollToTopFab
@@ -150,16 +149,17 @@ fun CheckSheetScreen(
             CenterAlignedTopAppBar(
                 title = { HeaderTitle("工程管理チェックシート") },
                 navigationIcon = {
-                    IconButton(onClick = { feedback(); onBack() }) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "戻る", tint = MaterialTheme.colorScheme.onPrimary)
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        IconButton(onClick = { feedback(); onBack() }) {
+                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "戻る", tint = MaterialTheme.colorScheme.onPrimary)
+                        }
+                        HeaderLogo()
                     }
                 },
                 actions = {
                     HeaderUserLabel(userName)
                     NotificationBell()
-                    MyPageButton()
-                    DashboardButton()
-                    ProcessAssignmentButton()
+                    HeaderOverflowMenu()
                     IconButton(onClick = { feedback(); vm.load() }) {
                         Icon(Icons.Filled.Refresh, contentDescription = "更新", tint = MaterialTheme.colorScheme.onPrimary)
                     }
@@ -218,8 +218,9 @@ fun CheckSheetScreen(
                 order = order.toOrderAssignDto(),
                 processName = proc.process_name,
                 current = proc.worker,
-                workers = vm.workers,
+                workers = vm.eligibleWorkers(proc.process_name),
                 saving = vm.saving,
+                onLeaveToday = vm.todayLeaveWorkerNames,
                 onSelect = { name ->
                     pickerProcess = null
                     vm.assign(proc.id, name)
@@ -240,14 +241,19 @@ fun CheckSheetScreen(
             DeadlineCalendarDialog(
                 order = order.toOrderAssignDto(),
                 processName = proc.process_name,
+                workerName = proc.worker,
                 initialDate = DateUtil.parse(proc.process_deadline),
                 minDate = minDate,
                 maxDate = maxDate,
                 holidayDates = vm.holidayDates,
                 overrideDates = vm.overrideDates,
+                workerLeaveDates = vm.deadlineWorkerLeaveDates,
                 saving = vm.saving,
                 serverError = vm.deadlineError,
-                onVisibleMonthChanged = { vm.ensureHolidaysLoaded(it) },
+                onVisibleMonthChanged = {
+                    vm.ensureHolidaysLoaded(it)
+                    vm.ensureDeadlineWorkerLeaveLoaded(proc.worker, it)
+                },
                 onConfirm = { date -> vm.updateDeadline(proc.id, date) { deadlineProcess = null } },
                 onDismiss = {
                     vm.clearDeadlineError()
@@ -459,8 +465,12 @@ private fun BasicInfoCard(order: CheckSheetOrderDto) {
                         DateUtil.longJapaneseLabel(order.delivery_date).orDash(),
                         highlight = true,
                     )
-                    LabeledRow("注文数", order.quantity?.let { "$it 個" }.orDash())
-                    LabeledRow("不良数（合計）", (order.defect_count ?: 0).let { if (it > 0) "$it 個" else "―" })
+                    LabeledRow("注文数", order.quantity?.let { "$it" }.orDash(), unit = order.quantity?.let { "個" })
+                    LabeledRow(
+                        "不良数（合計）",
+                        (order.defect_count ?: 0).let { if (it > 0) "$it" else "―" },
+                        unit = (order.defect_count ?: 0).takeIf { it > 0 }?.let { "個" },
+                    )
                     LabeledRow("材料入荷日", DateUtil.longJapaneseLabel(order.material_arrived_at).orDash())
                 }
             }
@@ -483,7 +493,13 @@ private fun BasicInfoCard(order: CheckSheetOrderDto) {
 }
 
 @Composable
-private fun LabeledRow(label: String, value: String, mono: Boolean = false, highlight: Boolean = false) {
+private fun LabeledRow(
+    label: String,
+    value: String,
+    mono: Boolean = false,
+    highlight: Boolean = false,
+    unit: String? = null,
+) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -507,13 +523,26 @@ private fun LabeledRow(label: String, value: String, mono: Boolean = false, high
             fontWeight = FontWeight.Bold,
             modifier = Modifier.width(108.dp),
         )
-        Text(
-            value,
-            fontSize = 16.sp,
-            fontWeight = if (highlight) FontWeight.ExtraBold else FontWeight.Medium,
-            color = if (highlight) Color(0xFFDC2626) else Color(0xFF1F2937),
-            fontFamily = if (mono) FontFamily.Monospace else FontFamily.Default,
-        )
+        // 数字と単位を同じTextに混ぜると、端末フォントによっては桁の大きさがばらついて
+        // 見えることがあるため、数字と単位は別々のTextに分ける
+        Row {
+            Text(
+                value,
+                fontSize = 16.sp,
+                fontWeight = if (highlight) FontWeight.ExtraBold else FontWeight.Medium,
+                color = if (highlight) Color(0xFFDC2626) else Color(0xFF1F2937),
+                fontFamily = if (mono) FontFamily.Monospace else FontFamily.Default,
+            )
+            unit?.let {
+                Text(
+                    it,
+                    fontSize = 16.sp,
+                    fontWeight = if (highlight) FontWeight.ExtraBold else FontWeight.Medium,
+                    color = if (highlight) Color(0xFFDC2626) else Color(0xFF1F2937),
+                    fontFamily = if (mono) FontFamily.Monospace else FontFamily.Default,
+                )
+            }
+        }
     }
 }
 

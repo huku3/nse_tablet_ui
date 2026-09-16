@@ -30,6 +30,7 @@ class SettingsStore(private val context: Context) {
         val CAN_VIEW_ORDERS = booleanPreferencesKey("can_view_orders")
         val CAN_VIEW_SHIPPING = booleanPreferencesKey("can_view_shipping")
         val CAN_MANAGE_PROCESS_ASSIGNMENTS = booleanPreferencesKey("can_manage_process_assignments")
+        val CAN_MANAGE_REPORTS = booleanPreferencesKey("can_manage_reports")
         val ACCENT_COLOR = stringPreferencesKey("accent_color_hex")
     }
 
@@ -51,6 +52,8 @@ class SettingsStore(private val context: Context) {
     val canViewShippingFlow: Flow<Boolean> = context.dataStore.data.map { it[Keys.CAN_VIEW_SHIPPING] ?: false }
     val canManageProcessAssignmentsFlow: Flow<Boolean> =
         context.dataStore.data.map { it[Keys.CAN_MANAGE_PROCESS_ASSIGNMENTS] ?: false }
+    val canManageReportsFlow: Flow<Boolean> =
+        context.dataStore.data.map { it[Keys.CAN_MANAGE_REPORTS] ?: false }
 
     /** 現在ログイン中アカウントのマイページ設定色（"#RRGGBB"）。未設定時はアプリの既定色 */
     val accentColorFlow: Flow<String> =
@@ -64,6 +67,7 @@ class SettingsStore(private val context: Context) {
         canViewOrders: Boolean,
         canViewShipping: Boolean,
         canManageProcessAssignments: Boolean,
+        canManageReports: Boolean,
         accentColorHex: String?,
     ) {
         cachedToken = token
@@ -75,6 +79,7 @@ class SettingsStore(private val context: Context) {
             it[Keys.CAN_VIEW_ORDERS] = canViewOrders
             it[Keys.CAN_VIEW_SHIPPING] = canViewShipping
             it[Keys.CAN_MANAGE_PROCESS_ASSIGNMENTS] = canManageProcessAssignments
+            it[Keys.CAN_MANAGE_REPORTS] = canManageReports
             it[Keys.ACCENT_COLOR] = accentColorHex ?: DEFAULT_ACCENT_HEX
         }
     }
@@ -94,7 +99,11 @@ class SettingsStore(private val context: Context) {
             it.remove(Keys.CAN_VIEW_ORDERS)
             it.remove(Keys.CAN_VIEW_SHIPPING)
             it.remove(Keys.CAN_MANAGE_PROCESS_ASSIGNMENTS)
-            it.remove(Keys.ACCENT_COLOR)
+            it.remove(Keys.CAN_MANAGE_REPORTS)
+            // ACCENT_COLORはここでは消さない。消すとMainActivityが購読しているaccentColorFlowが
+            // 即座にデフォルト色へ変わり、ログアウトの瞬間だけテーマ色が一瞬切り替わって見える。
+            // 次にログインした人の色はsaveToken()が同じトランザクションで必ず上書きするため、
+            // ログアウト時点で消しておく必要はない
         }
     }
 

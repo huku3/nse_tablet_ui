@@ -37,6 +37,7 @@
             android:name=".MainActivity"
             android:exported="true"
             android:screenOrientation="fullSensor"
+            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboardHidden"
             android:theme="@style/Theme.NSEWorker">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />

@@ -6,6 +6,7 @@ import androidx.compose.runtime.setValue
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import jp.co.nse.worker.data.ApiResult
+import jp.co.nse.worker.data.ImageAttachment
 import jp.co.nse.worker.data.TaskDetailDto
 import jp.co.nse.worker.data.WorkStatus
 import jp.co.nse.worker.data.WorkerRepository
@@ -69,6 +70,19 @@ class TaskDetailViewModel(
         viewModelScope.launch {
             actionRunning = true
             val result = repo.reportDefect(d.order.id, d.process.id, count)
+            actionRunning = false
+            when (result) {
+                is ApiResult.Success -> load()
+                is ApiResult.Failure -> actionMessage = result.message
+            }
+        }
+    }
+
+    fun requestRework(targetProcessId: Int, count: Int, content: String, photo: ImageAttachment? = null) {
+        val d = detail ?: return
+        viewModelScope.launch {
+            actionRunning = true
+            val result = repo.reportRework(d.order.id, d.process.id, targetProcessId, count, content, photo)
             actionRunning = false
             when (result) {
                 is ApiResult.Success -> load()

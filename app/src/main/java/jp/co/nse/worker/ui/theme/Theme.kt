@@ -5,6 +5,10 @@ import androidx.compose.material3.Typography
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.Font
+import androidx.compose.ui.text.font.FontFamily
+import jp.co.nse.worker.R
 
 // ブランドグリーン（アプリアイコンと統一）
 val Green500 = Color(0xFF22C55E)
@@ -129,13 +133,55 @@ private fun lightColorsFor(accent: Color): androidx.compose.material3.ColorSchem
     )
 }
 
+/**
+ * 端末のフォントによっては数字が「オールドスタイル数字」（8などは大文字と同じ高さなのに、
+ * 4のように背が低く幅も狭い字が混在する字体）で描画され、桁を並べたときに大きさや幅が
+ * バラバラに見えることがある（例:「48」の4と8で高さが違って見える、日付を並べたとき
+ * 「9/11」の11だけ幅が狭くて揃わない、など）。OpenTypeの lnum（ライニング数字＝どの数字も
+ * 大文字と同じ高さ）と tnum（等幅数字＝桁を揃えて並べられる）を明示的に有効化し、
+ * アプリ全体で数字の見た目を安定させる。
+ */
+private const val NumeralFriendlyFeatures = "'tnum' 1, 'lnum' 1"
+
+/**
+ * 端末の標準フォントの数字デザインが原因と確認できたため、数字（ラテン文字）の見た目を
+ * 安定させるフォントを明示的に指定する。Noto Sansは和文（CJK）グリフを含まない
+ * ラテン文字のみのファミリーなので、日本語（漢字・ひらがな・カタカナ）の見た目は
+ * これまで通り端末標準フォントのままフォールバックされ、数字・英字だけがこのフォントで
+ * 描画される。CJKを含むフォント（Noto Sans/Serif JPなど）に比べて格段に軽量（約2MB）。
+ */
+private val NumeralFont = FontFamily(Font(R.font.noto_sans))
+
+private fun TextStyle.withStableNumerals() =
+    merge(TextStyle(fontFeatureSettings = NumeralFriendlyFeatures, fontFamily = NumeralFont))
+
+private val AppTypography = Typography().let { base ->
+    Typography(
+        displayLarge = base.displayLarge.withStableNumerals(),
+        displayMedium = base.displayMedium.withStableNumerals(),
+        displaySmall = base.displaySmall.withStableNumerals(),
+        headlineLarge = base.headlineLarge.withStableNumerals(),
+        headlineMedium = base.headlineMedium.withStableNumerals(),
+        headlineSmall = base.headlineSmall.withStableNumerals(),
+        titleLarge = base.titleLarge.withStableNumerals(),
+        titleMedium = base.titleMedium.withStableNumerals(),
+        titleSmall = base.titleSmall.withStableNumerals(),
+        bodyLarge = base.bodyLarge.withStableNumerals(),
+        bodyMedium = base.bodyMedium.withStableNumerals(),
+        bodySmall = base.bodySmall.withStableNumerals(),
+        labelLarge = base.labelLarge.withStableNumerals(),
+        labelMedium = base.labelMedium.withStableNumerals(),
+        labelSmall = base.labelSmall.withStableNumerals(),
+    )
+}
+
 /** [accentColor] は現在ログイン中のアカウントのマイページで選んだメイン色（未選択時は出荷カレンダーと同じブルー） */
 @Composable
 fun NseWorkerTheme(accentColor: Color = Indigo700, content: @Composable () -> Unit) {
     // 工場利用のため常にライトテーマ
     MaterialTheme(
         colorScheme = lightColorsFor(accentColor),
-        typography = Typography(),
+        typography = AppTypography,
         content = content,
     )
 }

@@ -25,3 +25,6 @@ object WorkStatus {
     /** 中断理由（App\Models\OrderProcess::$pauseReasons） */
     val pauseReasons = listOf("電話対応", "トイレ", "休憩", "その他")
 }
+
+/** 「追加修正が必要」ボタンを表示してよい工程名（App\Http\Controllers\Api\OrderProcessController::requestRework 対応） */
+val reworkEligibleProcessNames = listOf("最終検査", "追加修正後検査")

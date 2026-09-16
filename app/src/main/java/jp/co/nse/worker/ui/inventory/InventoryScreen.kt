@@ -70,14 +70,13 @@ import jp.co.nse.worker.data.MaterialCandidateDto
 import jp.co.nse.worker.data.MaterialInventoryDto
 import jp.co.nse.worker.data.MaterialTransactionDto
 import jp.co.nse.worker.data.OrderAssignDto
-import jp.co.nse.worker.ui.components.DashboardButton
 import jp.co.nse.worker.ui.components.HeaderTitle
+import jp.co.nse.worker.ui.components.HeaderLogo
+import jp.co.nse.worker.ui.components.HeaderOverflowMenu
 import jp.co.nse.worker.ui.components.HeaderUserLabel
-import jp.co.nse.worker.ui.components.MyPageButton
 import jp.co.nse.worker.ui.components.NotificationBell
 import jp.co.nse.worker.ui.components.OrderStatus
 import jp.co.nse.worker.ui.components.OrderStatusBadge
-import jp.co.nse.worker.ui.components.ProcessAssignmentButton
 import jp.co.nse.worker.ui.components.ScrollToBottomFab
 import jp.co.nse.worker.ui.components.ScrollToTopFab
 import jp.co.nse.worker.ui.components.rememberCurrentUserName
@@ -212,7 +211,7 @@ class InventoryViewModel(private val repo: ManagerRepository) : ViewModel() {
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun InventoryScreen(onLogout: () -> Unit = {}, isActive: Boolean = true) {
+fun InventoryScreen(onLogout: () -> Unit = {}, isActive: Boolean = true, onSwitchTab: (String) -> Unit = {}) {
     val context = androidx.compose.ui.platform.LocalContext.current
     val container = context.appContainer
     val vm: InventoryViewModel = viewModel(
@@ -243,12 +242,11 @@ fun InventoryScreen(onLogout: () -> Unit = {}, isActive: Boolean = true) {
         topBar = {
             CenterAlignedTopAppBar(
                 title = { HeaderTitle("在庫") },
+                navigationIcon = { HeaderLogo(onClick = { onSwitchTab("INVENTORY") }) },
                 actions = {
                     HeaderUserLabel(userName)
-                    NotificationBell()
-                    MyPageButton()
-                    DashboardButton()
-                    ProcessAssignmentButton()
+                    NotificationBell(isActive = isActive)
+                    HeaderOverflowMenu(currentHomeTab = "INVENTORY", onSwitchHomeTab = onSwitchTab)
                     IconButton(onClick = { feedback(); vm.load() }) {
                         Icon(Icons.Filled.Refresh, contentDescription = "更新", tint = MaterialTheme.colorScheme.onPrimary)
                     }
@@ -432,7 +430,14 @@ private fun ProcessedOrderCard(order: OrderAssignDto) {
             Spacer(Modifier.height(8.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
                 Text("受注No.${order.id}", fontSize = 13.sp, color = Color(0xFF6B7280))
-                order.quantity?.let { Text("数量 $it", fontSize = 13.sp, color = Color(0xFF6B7280)) }
+                // 数字を日本語のラベルと同じTextに混ぜると、端末フォントによっては桁の
+                // 大きさがばらついて見えることがあるため、数字は別のTextに分ける
+                order.quantity?.let {
+                    Row {
+                        Text("数量 ", fontSize = 13.sp, color = Color(0xFF6B7280))
+                        Text("$it", fontSize = 13.sp, color = Color(0xFF6B7280))
+                    }
+                }
             }
         }
     }
@@ -729,7 +734,15 @@ private fun AllocateCandidateRow(
             Text(candidate.part_name ?: "—", fontSize = 14.sp)
             Text(candidate.customer_name ?: "—", fontSize = 12.sp, color = Color(0xFF6B7280))
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                candidate.order_quantity?.let { Text("注文 $it 個", fontSize = 12.sp, color = Color(0xFF6B7280)) }
+                // 数字を日本語のラベル・単位と同じTextに混ぜると、端末フォントによっては桁の
+                // 大きさがばらついて見えることがあるため、数字は別のTextに分ける
+                candidate.order_quantity?.let {
+                    Row {
+                        Text("注文 ", fontSize = 12.sp, color = Color(0xFF6B7280))
+                        Text("$it", fontSize = 12.sp, color = Color(0xFF6B7280))
+                        Text(" 個", fontSize = 12.sp, color = Color(0xFF6B7280))
+                    }
+                }
                 if (date != null) {
                     Text(
                         "${DateUtil.shortLabel(date)}　${DateUtil.deadlineNote(date)}",
@@ -742,7 +755,12 @@ private fun AllocateCandidateRow(
         if (alreadyAllocated != null) {
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                 Icon(Icons.Filled.Check, contentDescription = null, tint = Color(0xFF059669))
-                Text("${alreadyAllocated.quantity}個", fontWeight = FontWeight.Bold, color = Color(0xFF059669), fontSize = 13.sp)
+                // 数字と単位を同じTextに混ぜると、端末フォントによっては桁の大きさがばらついて
+                // 見えることがあるため、数字と単位は別々のTextに分ける
+                Row {
+                    Text("${alreadyAllocated.quantity}", fontWeight = FontWeight.Bold, color = Color(0xFF059669), fontSize = 13.sp)
+                    Text("個", fontWeight = FontWeight.Bold, color = Color(0xFF059669), fontSize = 13.sp)
+                }
                 Text("引当済み", fontSize = 11.sp, color = Color(0xFF059669))
             }
         } else {

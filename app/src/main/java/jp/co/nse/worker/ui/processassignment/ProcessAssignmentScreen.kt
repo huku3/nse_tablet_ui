@@ -20,6 +20,7 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Logout
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.StarBorder
 import androidx.compose.material3.Button
@@ -65,12 +66,17 @@ import jp.co.nse.worker.data.ManagerRepository
 import jp.co.nse.worker.data.ProcessMasterLiteDto
 import jp.co.nse.worker.data.WorkerDto
 import jp.co.nse.worker.ui.components.HeaderTitle
+import jp.co.nse.worker.ui.components.HeaderLogo
+import jp.co.nse.worker.ui.components.HeaderOverflowMenu
 import jp.co.nse.worker.ui.components.HeaderUserLabel
 import jp.co.nse.worker.ui.components.NotificationBell
 import jp.co.nse.worker.ui.components.rememberCurrentUserName
 import jp.co.nse.worker.ui.theme.Amber500
 import jp.co.nse.worker.util.rememberClickFeedback
 import kotlinx.coroutines.launch
+
+/** 工程名を五十音順に並べるためのコレータ（かな・カナだけでなく主要な漢字も読み順で近似的に並ぶ） */
+private val JapaneseNameCollator: java.text.Collator = java.text.Collator.getInstance(java.util.Locale.JAPAN)
 
 /** 1人の作業者・1工程についての割り当て状態 */
 data class AssignmentState(val assigned: Boolean, val isDefault: Boolean)
@@ -121,7 +127,7 @@ class ProcessAssignmentViewModel(private val repo: ManagerRepository) : ViewMode
             when (val result = repo.processAssignments()) {
                 is ApiResult.Success -> {
                     workers = result.data.workers
-                    processMasters = result.data.process_masters
+                    processMasters = result.data.process_masters.sortedWith(compareBy(JapaneseNameCollator) { it.name })
                     val map = result.data.assignments.associate { a ->
                         (a.user_id to a.process_master_id) to AssignmentState(assigned = true, isDefault = a.is_default)
                     }
@@ -272,13 +278,20 @@ fun ProcessAssignmentScreen(onBack: () -> Unit, onLogout: () -> Unit = {}) {
             CenterAlignedTopAppBar(
                 title = { HeaderTitle("担当工程マスタ") },
                 navigationIcon = {
-                    IconButton(onClick = { feedback(); onBack() }) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "戻る", tint = MaterialTheme.colorScheme.onPrimary)
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        IconButton(onClick = { feedback(); onBack() }) {
+                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "戻る", tint = MaterialTheme.colorScheme.onPrimary)
+                        }
+                        HeaderLogo()
                     }
                 },
                 actions = {
                     HeaderUserLabel(userName)
                     NotificationBell()
+                    HeaderOverflowMenu(showProcessAssignments = false)
+                    IconButton(onClick = { feedback(); vm.load() }) {
+                        Icon(Icons.Filled.Refresh, contentDescription = "更新", tint = MaterialTheme.colorScheme.onPrimary)
+                    }
                     IconButton(onClick = { feedback(); onLogout() }) {
                         Icon(Icons.AutoMirrored.Filled.Logout, contentDescription = "ログアウト", tint = MaterialTheme.colorScheme.onPrimary)
                     }

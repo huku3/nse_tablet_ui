@@ -66,6 +66,8 @@ fun DeadlineCalendarDialog(
     overrideDates: Set<String>,
     saving: Boolean,
     serverError: String?,
+    workerName: String? = null,
+    workerLeaveDates: Set<String> = emptySet(),
     onVisibleMonthChanged: (YearMonth) -> Unit,
     onConfirm: (LocalDate?) -> Unit,
     onDismiss: () -> Unit,
@@ -87,6 +89,8 @@ fun DeadlineCalendarDialog(
                 "工程納期は客先納期（${DateUtil.shortLabel(maxDate)}）より後に設定できません"
             !DateUtil.isWorkingDay(date, holidayDates, overrideDates) ->
                 "この日は休日（日曜・休業日）のため選択できません"
+            date.toString() in workerLeaveDates ->
+                "この日は${workerName ?: "担当者"}さんの休暇予定日のため選択できません"
             else -> null
         }
         if (localError == null) {
@@ -143,6 +147,26 @@ fun DeadlineCalendarDialog(
                     Spacer(Modifier.height(6.dp))
                 }
 
+                // ---- 担当者の休暇予定日の凡例 ----
+                if (workerLeaveDates.isNotEmpty()) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Box(
+                            modifier = Modifier
+                                .size(10.dp)
+                                .clip(CircleShape)
+                                .background(Color(0xFFEC4899)),
+                        )
+                        Spacer(Modifier.width(6.dp))
+                        Text(
+                            "${workerName ?: "担当者"}さんの休暇予定日",
+                            fontSize = 11.sp,
+                            color = Color(0xFFDB2777),
+                            fontWeight = FontWeight.SemiBold,
+                        )
+                    }
+                    Spacer(Modifier.height(6.dp))
+                }
+
                 // ---- 曜日ヘッダー ----
                 Row(modifier = Modifier.width(CellSize * 7)) {
                     WeekdayLabels.forEachIndexed { index, label ->
@@ -183,6 +207,7 @@ fun DeadlineCalendarDialog(
                                         isOutOfRange = (minDate != null && date < minDate) ||
                                             (maxDate != null && date > maxDate),
                                         isHoliday = !DateUtil.isWorkingDay(date, holidayDates, overrideDates),
+                                        isWorkerLeave = date.toString() in workerLeaveDates,
                                         onClick = { tryPick(date) },
                                     )
                                 }
@@ -248,12 +273,14 @@ private fun DayCell(
     isCustomerDate: Boolean,
     isOutOfRange: Boolean,
     isHoliday: Boolean,
+    isWorkerLeave: Boolean,
     onClick: () -> Unit,
 ) {
     val textColor = when {
         isSelected -> Color.White
         isOutOfRange -> Color(0xFFD1D5DB)
         isCustomerDate -> Color(0xFFDC2626)
+        isWorkerLeave -> Color(0xFFDB2777)
         isHoliday -> Color(0xFFF59E0B)
         date.dayOfWeek == java.time.DayOfWeek.SUNDAY -> Color(0xFFDC2626)
         date.dayOfWeek == java.time.DayOfWeek.SATURDAY -> Color(0xFF2563EB)
@@ -263,7 +290,13 @@ private fun DayCell(
         modifier = Modifier
             .size(CellSize - 4.dp)
             .clip(CircleShape)
-            .background(if (isSelected) MaterialTheme.colorScheme.primary else Color.Transparent)
+            .background(
+                when {
+                    isSelected -> MaterialTheme.colorScheme.primary
+                    isWorkerLeave -> Color(0xFFFCE7F3)
+                    else -> Color.Transparent
+                },
+            )
             .then(
                 if (isCustomerDate && !isSelected) {
                     Modifier.border(2.dp, Color(0xFFEF4444), CircleShape)

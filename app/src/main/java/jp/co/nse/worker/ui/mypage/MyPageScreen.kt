@@ -58,11 +58,11 @@ import androidx.lifecycle.viewmodel.viewModelFactory
 import jp.co.nse.worker.appContainer
 import jp.co.nse.worker.data.ApiResult
 import jp.co.nse.worker.data.HistoryItemDto
-import jp.co.nse.worker.ui.components.DashboardButton
 import jp.co.nse.worker.ui.components.HeaderTitle
+import jp.co.nse.worker.ui.components.HeaderLogo
+import jp.co.nse.worker.ui.components.HeaderOverflowMenu
 import jp.co.nse.worker.ui.components.HeaderUserLabel
 import jp.co.nse.worker.ui.components.NotificationBell
-import jp.co.nse.worker.ui.components.ProcessAssignmentButton
 import jp.co.nse.worker.ui.components.ScrollToBottomFab
 import jp.co.nse.worker.ui.components.ScrollToTopFab
 import jp.co.nse.worker.ui.components.rememberCurrentUserName
@@ -71,6 +71,7 @@ import jp.co.nse.worker.ui.history.DaySummaryCard
 import jp.co.nse.worker.ui.history.DayTabRow
 import jp.co.nse.worker.ui.history.HistoryCard
 import jp.co.nse.worker.ui.history.HistoryViewModel
+import jp.co.nse.worker.ui.history.WorkStatsChart
 import jp.co.nse.worker.ui.history.recentTabDates
 import jp.co.nse.worker.ui.theme.AccentPreset
 import jp.co.nse.worker.ui.theme.AccentPresets
@@ -129,15 +130,17 @@ fun MyPageScreen(
             CenterAlignedTopAppBar(
                 title = { HeaderTitle("マイページ") },
                 navigationIcon = {
-                    IconButton(onClick = { feedback(); onBack() }) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "戻る", tint = MaterialTheme.colorScheme.onPrimary)
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        IconButton(onClick = { feedback(); onBack() }) {
+                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "戻る", tint = MaterialTheme.colorScheme.onPrimary)
+                        }
+                        HeaderLogo()
                     }
                 },
                 actions = {
                     HeaderUserLabel(userName)
                     NotificationBell()
-                    DashboardButton()
-                    ProcessAssignmentButton()
+                    HeaderOverflowMenu(showMyPage = false)
                     IconButton(onClick = { feedback(); historyVm.load() }) {
                         Icon(Icons.Filled.Refresh, contentDescription = "更新", tint = MaterialTheme.colorScheme.onPrimary)
                     }
@@ -285,6 +288,15 @@ private fun MyPageContent(
                     }
                 }
                 else -> {
+                    item(key = "chart") {
+                        WorkStatsChart(
+                            dates = tabDates,
+                            today = today,
+                            selectedDate = effectiveSelected,
+                            statsByDate = statsByDate,
+                            onSelect = { selectedDate = it },
+                        )
+                    }
                     item(key = "day-tabs") {
                         DayTabRow(
                             dates = tabDates,

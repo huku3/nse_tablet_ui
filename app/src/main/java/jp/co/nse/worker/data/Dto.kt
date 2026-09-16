@@ -205,6 +205,16 @@ data class OrderAssignDto(
     val status: String? = null,
     val order_type: String? = null,
     val processes: List<AssignProcessDto> = emptyList(),
+    // status="material_waiting"の間は、材料の到着予定日（生産管理システム側で日次バッチが
+    // material_arrived_at <= 今日 になった時点でstatusをmaterial_arrived_dateへ自動遷移させる
+    // ため、材料待ちの間はまだ未来の予定日として扱える）。ダッシュボードの「材料待ち」カードで、
+    // 今日・翌稼働日・翌々稼働日に到着予定の件数を出すのに使う
+    val material_arrived_at: String? = null,
+    // ダッシュボードの材料入荷状況カードで表示する材料情報（現状 /orders エンドポイントの
+    // レスポンスに未追加の場合はnullのままになるため、表示するにはAPI側の対応が別途必要）
+    val material_name: String? = null,
+    val material_size: String? = null,
+    val material_supplier: String? = null,
 )
 
 @Serializable
@@ -328,6 +338,7 @@ data class NotificationDataDto(
     val worker: String? = null,
     val reported_by: String? = null,
     val assigned_by: String? = null,
+    val process_deadline: String? = null,
 )
 
 @Serializable
@@ -549,4 +560,83 @@ data class AllocateRequest(
     val order_id: Int,
     val quantity: Int,
     val note: String? = null,
+)
+
+// ===== 不具合・要望の報告 =====
+
+/** 報告フォームのカテゴリ。[apiValue] はサーバーに送信する値、[label] は画面表示用 */
+enum class ReportCategory(val apiValue: String, val label: String) {
+    UI_IMPROVEMENT("ui_improvement", "UI改善"),
+    BUG("bug", "不具合"),
+    OTHER("other", "その他"),
+}
+
+/** 報告一覧・詳細（管理者向け）。一覧では body 等は null のまま届く */
+@Serializable
+data class ReportDto(
+    val id: Int,
+    val category: String,
+    val category_label: String? = null,
+    val title: String,
+    val status: String,
+    val status_label: String? = null,
+    val reporter_name: String? = null,
+    val has_screenshot: Boolean = false,
+    val created_at: String? = null,
+    val body: String? = null,
+    val screen_name: String? = null,
+    val app_version: String? = null,
+    val os_version: String? = null,
+    val device_model: String? = null,
+    val resolver_name: String? = null,
+    val resolved_at: String? = null,
+)
+
+@Serializable
+data class UpdateReportStatusRequest(
+    val status: String,
+)
+
+/** 報告の対応ステータス。[apiValue] はサーバーに送信する値、[label] は画面表示用 */
+enum class ReportStatus(val apiValue: String, val label: String) {
+    OPEN("open", "未対応"),
+    IN_PROGRESS("in_progress", "対応中"),
+    RESOLVED("resolved", "対応済み"),
+    WONTFIX("wontfix", "対応しない"),
+    ;
+
+    companion object {
+        fun fromApiValue(value: String): ReportStatus = entries.find { it.apiValue == value } ?: OPEN
+    }
+}
+
+// ===== 有給休暇・休暇取得状況（長島勤怠システム連携） =====
+
+@Serializable
+data class LeavesResponse(
+    val period: LeavePeriodDto = LeavePeriodDto(),
+    val departments: List<String> = emptyList(),
+    val days: List<LeaveDayDto> = emptyList(),
+)
+
+@Serializable
+data class LeavePeriodDto(
+    val start: String? = null,
+    val end: String? = null,
+)
+
+@Serializable
+data class LeaveDayDto(
+    val date: String,
+    val leaves: List<LeaveEntryDto> = emptyList(),
+)
+
+@Serializable
+data class LeaveEntryDto(
+    val user_name: String,
+    val department_name: String? = null,
+    val category_name: String? = null,
+    val start_date: String? = null,
+    val end_date: String? = null,
+    val am_pm: Int? = null,
 )

@@ -72,14 +72,15 @@ import jp.co.nse.worker.data.AssignProcessDto
 import jp.co.nse.worker.data.ManagerRepository
 import jp.co.nse.worker.data.OrderAssignDto
 import jp.co.nse.worker.data.OrderType
+import jp.co.nse.worker.data.ProcessAssignmentsResponse
+import jp.co.nse.worker.ui.dashboard.StaffLeaveDepartment
 import jp.co.nse.worker.data.WorkStatus
 import jp.co.nse.worker.data.WorkerDto
 import jp.co.nse.worker.ui.components.HeaderTitle
+import jp.co.nse.worker.ui.components.HeaderLogo
+import jp.co.nse.worker.ui.components.HeaderOverflowMenu
 import jp.co.nse.worker.ui.components.HeaderUserLabel
-import jp.co.nse.worker.ui.components.DashboardButton
-import jp.co.nse.worker.ui.components.MyPageButton
 import jp.co.nse.worker.ui.components.NotificationBell
-import jp.co.nse.worker.ui.components.ProcessAssignmentButton
 import jp.co.nse.worker.ui.components.ScrollToBottomFab
 import jp.co.nse.worker.ui.components.ScrollToTopFab
 import jp.co.nse.worker.ui.components.rememberCurrentUserName
@@ -105,6 +106,14 @@ class AssignmentDetailViewModel(
         private set
     var workers by mutableStateOf<List<WorkerDto>>(emptyList())
         private set
+    private var processAssignments by mutableStateOf(ProcessAssignmentsResponse())
+    /** 本日休暇の作業者名（担当者選択ダイアログで選択不可にする対象） */
+    var todayLeaveWorkerNames by mutableStateOf<Set<String>>(emptySet())
+        private set
+    /** 工程納期カレンダーで選択不可にする、割り当て中の作業者の休暇予定日（表示中の月分） */
+    var deadlineWorkerLeaveDates by mutableStateOf<Set<String>>(emptySet())
+        private set
+    private var loadedDeadlineLeaveKey: Pair<String, YearMonth>? = null
     var saving by mutableStateOf(false)
         private set
     var message by mutableStateOf<String?>(null)
@@ -197,12 +206,67 @@ class AssignmentDetailViewModel(
                 is ApiResult.Success -> workers = w.data
                 is ApiResult.Failure -> { /* 候補取得失敗は致命的ではない */ }
             }
+            when (val pa = repo.processAssignments()) {
+                is ApiResult.Success -> processAssignments = pa.data
+                // 取得失敗時はeligibleWorkers()が全員表示にフォールバックする
+                is ApiResult.Failure -> { }
+            }
             when (val result = repo.orderDetail(orderId)) {
                 is ApiResult.Success -> order = result.data
                 is ApiResult.Failure -> error = result.message
             }
+            val today = LocalDate.now().toString()
+            when (val leaves = repo.leaves(today, today, StaffLeaveDepartment)) {
+                is ApiResult.Success -> todayLeaveWorkerNames =
+                    leaves.data.days.flatMap { it.leaves }.map { it.user_name }.toSet()
+                is ApiResult.Failure -> { /* 取得失敗時は選択制限をかけないだけにする */ }
+            }
             loading = false
         }
+    }
+
+    /**
+     * 工程納期カレンダーで表示中の月について、割り当て中の作業者の休暇予定日を取得する。
+     * 同じ（作業者・月）の組み合わせは再取得しない。
+     */
+    fun ensureDeadlineWorkerLeaveLoaded(workerName: String?, visibleMonth: YearMonth) {
+        if (workerName.isNullOrBlank()) {
+            deadlineWorkerLeaveDates = emptySet()
+            return
+        }
+        val key = workerName to visibleMonth
+        if (key == loadedDeadlineLeaveKey) return
+        loadedDeadlineLeaveKey = key
+        viewModelScope.launch {
+            when (
+                val result = repo.leaves(
+                    visibleMonth.atDay(1).toString(),
+                    visibleMonth.atEndOfMonth().toString(),
+                    StaffLeaveDepartment,
+                )
+            ) {
+                is ApiResult.Success -> deadlineWorkerLeaveDates = result.data.days
+                    .filter { day -> day.leaves.any { it.user_name == workerName } }
+                    .map { it.date }
+                    .toSet()
+                is ApiResult.Failure -> deadlineWorkerLeaveDates = emptySet()
+            }
+        }
+    }
+
+    /**
+     * 担当者選択ダイアログの候補を、担当工程マスタでこの工程に登録されている作業者だけに絞り込む。
+     * マスタ側にその工程自体が登録されていない場合は絞り込みようがないため全員を対象にする
+     * （自動割り振りはマスタ未登録の工程をスキップするだけだが、手動割り当てまで塞ぐと
+     * マスタ整備前の受注を誰にも割り当てられなくなってしまうため）。
+     */
+    fun eligibleWorkers(processName: String): List<WorkerDto> {
+        val master = processAssignments.process_masters.find { it.name == processName } ?: return workers
+        val assignedUserIds = processAssignments.assignments
+            .filter { it.process_master_id == master.id }
+            .map { it.user_id }
+            .toSet()
+        return workers.filter { it.id in assignedUserIds }
     }
 
     fun assign(processId: Int, workerName: String?) {
@@ -316,16 +380,17 @@ fun AssignmentDetailScreen(
             CenterAlignedTopAppBar(
                 title = { HeaderTitle("担当者の割り当て") },
                 navigationIcon = {
-                    IconButton(onClick = { feedback(); onBack() }) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "戻る", tint = MaterialTheme.colorScheme.onPrimary)
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        IconButton(onClick = { feedback(); onBack() }) {
+                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "戻る", tint = MaterialTheme.colorScheme.onPrimary)
+                        }
+                        HeaderLogo()
                     }
                 },
                 actions = {
                     HeaderUserLabel(userName)
                     NotificationBell()
-                    MyPageButton()
-                    DashboardButton()
-                    ProcessAssignmentButton()
+                    HeaderOverflowMenu()
                     IconButton(onClick = { feedback(); vm.load() }) {
                         Icon(Icons.Filled.Refresh, contentDescription = "更新", tint = MaterialTheme.colorScheme.onPrimary)
                     }
@@ -524,8 +589,9 @@ fun AssignmentDetailScreen(
                 order = order,
                 processName = proc.process_name,
                 current = proc.worker,
-                workers = vm.workers,
+                workers = vm.eligibleWorkers(proc.process_name),
                 saving = vm.saving,
+                onLeaveToday = vm.todayLeaveWorkerNames,
                 onSelect = { name ->
                     pickerProcess = null
                     vm.assign(proc.id, name)
@@ -546,14 +612,19 @@ fun AssignmentDetailScreen(
             DeadlineCalendarDialog(
                 order = order,
                 processName = proc.process_name,
+                workerName = proc.worker,
                 initialDate = DateUtil.parse(proc.process_deadline),
                 minDate = minDate,
                 maxDate = maxDate,
                 holidayDates = vm.holidayDates,
                 overrideDates = vm.overrideDates,
+                workerLeaveDates = vm.deadlineWorkerLeaveDates,
                 saving = vm.saving,
                 serverError = vm.deadlineError,
-                onVisibleMonthChanged = { vm.ensureHolidaysLoaded(it) },
+                onVisibleMonthChanged = {
+                    vm.ensureHolidaysLoaded(it)
+                    vm.ensureDeadlineWorkerLeaveLoaded(proc.worker, it)
+                },
                 onConfirm = { date ->
                     vm.updateDeadline(proc.id, date) { deadlineProcess = null }
                 },
@@ -637,16 +708,21 @@ fun OrderContextCard(order: OrderAssignDto) {
             DateUtil.parse(order.delivery_date)?.let {
                 OrderContextMiniLabel("客先納期", DateUtil.shortLabel(it))
             }
-            order.quantity?.let { OrderContextMiniLabel("注文数", "$it 個") }
+            order.quantity?.let { OrderContextMiniLabel("注文数", "$it", unit = "個") }
         }
     }
 }
 
 @Composable
-private fun OrderContextMiniLabel(label: String, value: String) {
+private fun OrderContextMiniLabel(label: String, value: String, unit: String? = null) {
     Column {
         Text(label, fontSize = 10.sp, color = Color(0xFF9CA3AF), fontWeight = FontWeight.SemiBold)
-        Text(value, fontSize = 13.sp, color = Color(0xFF1F2937), fontWeight = FontWeight.Bold)
+        // 数字と単位を同じTextに混ぜると、端末フォントによっては桁の大きさがばらついて
+        // 見えることがあるため、数字と単位は別々のTextに分ける
+        Row {
+            Text(value, fontSize = 13.sp, color = Color(0xFF1F2937), fontWeight = FontWeight.Bold)
+            unit?.let { Text(it, fontSize = 13.sp, color = Color(0xFF1F2937), fontWeight = FontWeight.Bold) }
+        }
     }
 }
 
@@ -739,6 +815,7 @@ fun WorkerPickerDialog(
     current: String?,
     workers: List<WorkerDto>,
     saving: Boolean,
+    onLeaveToday: Set<String> = emptySet(),
     onSelect: (String?) -> Unit,
     onDismiss: () -> Unit,
 ) {
@@ -764,6 +841,7 @@ fun WorkerPickerDialog(
                             name = w.name,
                             color = parseHex(w.color),
                             selected = current == w.name,
+                            disabledReason = "本日休暇のため選択できません".takeIf { w.name in onLeaveToday },
                             onClick = { onSelect(w.name) },
                         )
                     }
@@ -779,33 +857,52 @@ fun WorkerPickerDialog(
     )
 }
 
+/**
+ * [disabledReason]を渡すと、名前は表示したまま選択できない状態にし、理由を名前の下に表示する
+ * （例：本日休暇の作業者。担当工程マスタからは外さず、その日だけ選べないようにするための表示）。
+ */
 @Composable
-private fun WorkerRow(name: String, color: Color, selected: Boolean, onClick: () -> Unit) {
+private fun WorkerRow(
+    name: String,
+    color: Color,
+    selected: Boolean,
+    disabledReason: String? = null,
+    onClick: () -> Unit,
+) {
     val feedback = rememberClickFeedback()
+    val disabled = disabledReason != null
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(12.dp))
             .background(if (selected) MaterialTheme.colorScheme.primary.copy(alpha = 0.08f) else Color.Transparent)
-            .clickable { feedback(); onClick() }
+            .let { if (disabled) it else it.clickable { feedback(); onClick() } }
             .padding(horizontal = 8.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Box(
-            modifier = Modifier.size(34.dp).background(color, CircleShape),
+            modifier = Modifier.size(34.dp).background(if (disabled) color.copy(alpha = 0.4f) else color, CircleShape),
             contentAlignment = Alignment.Center,
         ) {
             Text(name.take(1), color = Color.White, fontWeight = FontWeight.Bold, fontSize = 15.sp)
         }
         Spacer(Modifier.size(12.dp))
-        Text(
-            name,
-            fontSize = 16.sp,
-            fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
-            color = if (selected) MaterialTheme.colorScheme.primary else Color(0xFF1F2937),
-        )
-        if (selected) {
-            Spacer(Modifier.weight(1f))
+        Column(Modifier.weight(1f)) {
+            Text(
+                name,
+                fontSize = 16.sp,
+                fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
+                color = when {
+                    disabled -> Color(0xFF9CA3AF)
+                    selected -> MaterialTheme.colorScheme.primary
+                    else -> Color(0xFF1F2937)
+                },
+            )
+            if (disabledReason != null) {
+                Text(disabledReason, fontSize = 12.sp, color = Color(0xFFDC2626))
+            }
+        }
+        if (selected && !disabled) {
             Icon(Icons.Filled.Check, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(20.dp))
         }
     }

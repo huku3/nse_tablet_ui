@@ -53,6 +53,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.ViewModel
@@ -69,11 +70,10 @@ import jp.co.nse.worker.data.ProcessBriefDto
 import jp.co.nse.worker.data.TaskItemDto
 import jp.co.nse.worker.data.WorkStatus
 import jp.co.nse.worker.data.WorkerRepository
+import jp.co.nse.worker.ui.components.HeaderLogo
+import jp.co.nse.worker.ui.components.HeaderOverflowMenu
 import jp.co.nse.worker.ui.components.HeaderUserLabel
-import jp.co.nse.worker.ui.components.DashboardButton
-import jp.co.nse.worker.ui.components.MyPageButton
 import jp.co.nse.worker.ui.components.NotificationBell
-import jp.co.nse.worker.ui.components.ProcessAssignmentButton
 import jp.co.nse.worker.ui.components.OrderStatusBadge
 import jp.co.nse.worker.ui.components.ScrollToBottomFab
 import jp.co.nse.worker.ui.components.ScrollToTopFab
@@ -137,6 +137,7 @@ fun TaskListScreen(
     completedProcessName: String? = null,
     onCompletedMessageShown: () -> Unit = {},
     isActive: Boolean = true,
+    onSwitchTab: (String) -> Unit = {},
 ) {
     val feedback = rememberClickFeedback()
     val context = androidx.compose.ui.platform.LocalContext.current
@@ -217,6 +218,7 @@ fun TaskListScreen(
         },
         topBar = {
             CenterAlignedTopAppBar(
+                navigationIcon = { HeaderLogo(onClick = { onSwitchTab("TASKS") }) },
                 title = {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         Text("作業一覧", fontWeight = FontWeight.Bold)
@@ -238,10 +240,8 @@ fun TaskListScreen(
                 ),
                 actions = {
                     HeaderUserLabel(userName)
-                    NotificationBell()
-                    MyPageButton()
-                    DashboardButton()
-                    ProcessAssignmentButton()
+                    NotificationBell(isActive = isActive)
+                    HeaderOverflowMenu(currentHomeTab = "TASKS", onSwitchHomeTab = onSwitchTab)
                     IconButton(onClick = { feedback(); vm.load() }) {
                         Icon(Icons.Filled.Refresh, contentDescription = "更新", tint = MaterialTheme.colorScheme.onPrimary)
                     }
@@ -477,7 +477,10 @@ private fun CompletedSectionHeader(count: Int) {
         Spacer(Modifier.width(8.dp))
         Text("完了した作業", fontWeight = FontWeight.Bold, fontSize = 15.sp)
         Spacer(Modifier.width(8.dp))
-        Text("${count}件", color = Color(0xFF9CA3AF), fontSize = 12.sp)
+        // 数字と単位を同じTextに混ぜると、端末フォントによっては桁の大きさがばらついて
+        // 見えることがあるため、数字と単位は別々のTextに分ける
+        Text("$count", color = Color(0xFF9CA3AF), fontSize = 12.sp)
+        Text("件", color = Color(0xFF9CA3AF), fontSize = 12.sp)
     }
 }
 
@@ -503,12 +506,14 @@ private fun CompletedCard(task: CompletedTaskDto, onClick: () -> Unit) {
                     color = Color(0xFF374151),
                 )
                 Spacer(Modifier.height(4.dp))
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(task.process_name, fontWeight = FontWeight.SemiBold, fontSize = 14.sp, color = Color(0xFF6B7280))
-                    DateUtil.dateTimeLabel(task.completed_at)?.let {
-                        Spacer(Modifier.width(8.dp))
-                        Text("$it 完了", fontSize = 12.sp, color = Color(0xFF9CA3AF))
-                    }
+                Text(task.process_name, fontWeight = FontWeight.SemiBold, fontSize = 14.sp, color = Color(0xFF6B7280))
+                DateUtil.dateTimeLabel(task.started_at)?.let {
+                    Spacer(Modifier.height(2.dp))
+                    Text("$it 開始", fontSize = 12.sp, color = Color(0xFF9CA3AF))
+                }
+                DateUtil.dateTimeLabel(task.completed_at)?.let {
+                    Spacer(Modifier.height(2.dp))
+                    Text("$it 完了", fontSize = 12.sp, color = Color(0xFF9CA3AF))
                 }
                 DateUtil.durationLabel(task.work_minutes)?.let {
                     Spacer(Modifier.height(2.dp))
@@ -543,7 +548,8 @@ private fun DateGroupHeader(dateKey: String?, count: Int) {
         Spacer(Modifier.width(8.dp))
         Text(label, fontWeight = FontWeight.Bold, fontSize = 15.sp)
         Spacer(Modifier.width(8.dp))
-        Text("${count}件", color = Color(0xFF9CA3AF), fontSize = 12.sp)
+        Text("$count", color = Color(0xFF9CA3AF), fontSize = 12.sp)
+        Text("件", color = Color(0xFF9CA3AF), fontSize = 12.sp)
     }
 }
 
@@ -595,7 +601,7 @@ private fun OrderTaskGroupCard(
                 Text(
                     text = order.part_name ?: "—",
                     fontWeight = FontWeight.Bold,
-                    fontSize = 20.sp,
+                    fontSize = 21.sp,
                     color = MaterialTheme.colorScheme.onSurface,
                     modifier = Modifier.weight(1f, fill = false),
                 )
@@ -612,7 +618,7 @@ private fun OrderTaskGroupCard(
             Row(horizontalArrangement = Arrangement.spacedBy(20.dp)) {
                 InfoLabel("受注No", "${order.id}")
                 order.po_number?.let { InfoLabel("発注番号", it) }
-                order.quantity?.let { InfoLabel("注文数", "$it 個") }
+                order.quantity?.let { InfoLabel("注文数", "$it", unit = "個") }
             }
             Spacer(Modifier.height(12.dp))
 
@@ -638,7 +644,7 @@ private fun OrderTaskGroupCard(
                 Spacer(Modifier.height(10.dp))
                 Text(
                     "他の担当工程",
-                    fontSize = 11.sp,
+                    fontSize = 12.sp,
                     fontWeight = FontWeight.Bold,
                     color = Color(0xFF9CA3AF),
                 )
@@ -672,7 +678,7 @@ private fun OtherProcessChip(task: TaskItemDto, onClick: () -> Unit) {
             task.process_name,
             color = color,
             fontWeight = FontWeight.Bold,
-            fontSize = 12.sp,
+            fontSize = 13.sp,
             maxLines = 1,
             softWrap = false,
         )
@@ -711,7 +717,7 @@ private fun TaskProcessRow(
             Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
                 Box(Modifier.size(8.dp).clip(CircleShape).background(statusColor))
                 Spacer(Modifier.width(8.dp))
-                Text(task.process_name, fontWeight = FontWeight.SemiBold, fontSize = 16.sp)
+                Text(task.process_name, fontWeight = FontWeight.SemiBold, fontSize = 17.sp)
             }
             when {
                 isWaiting && prog.canStartNow -> Pill("開始できます", Green600, icon = Icons.Filled.Check)
@@ -725,7 +731,7 @@ private fun TaskProcessRow(
             Text(
                 "${task.completed_count} / ${task.total_count} 個 完了",
                 color = Color(0xFF6B7280),
-                fontSize = 13.sp,
+                fontSize = 14.sp,
             )
         }
 
@@ -738,7 +744,7 @@ private fun TaskProcessRow(
                     Text(
                         "前工程はすべて完了しています。タップして開始できます。",
                         color = Green600,
-                        fontSize = 12.sp,
+                        fontSize = 13.sp,
                         fontWeight = FontWeight.SemiBold,
                     )
                 } else if (prog.current != null) {
@@ -749,7 +755,7 @@ private fun TaskProcessRow(
                             append(" ・ ${prog.completedCount}/${prog.total} 工程完了")
                         },
                         color = AmberDark,
-                        fontSize = 12.sp,
+                        fontSize = 13.sp,
                         fontWeight = FontWeight.SemiBold,
                     )
                 }
@@ -773,7 +779,7 @@ private fun Pill(text: String, color: Color, icon: androidx.compose.ui.graphics.
             Icon(icon, contentDescription = null, tint = color, modifier = Modifier.size(14.dp))
             Spacer(Modifier.width(4.dp))
         }
-        Text(text, color = color, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+        Text(text, color = color, fontWeight = FontWeight.Bold, fontSize = 14.sp)
     }
 }
 
@@ -801,11 +807,11 @@ private fun MiniPipeline(processes: List<ProcessBriefDto>, currentId: Int, curre
             }
             Column(
                 horizontalAlignment = Alignment.CenterHorizontally,
-                modifier = Modifier.width(60.dp),
+                modifier = Modifier.width(68.dp),
             ) {
                 Box(
                     modifier = Modifier
-                        .size(26.dp)
+                        .size(28.dp)
                         .clip(CircleShape)
                         .background(dotColor)
                         .then(if (isMine) Modifier.border(2.dp, MaterialTheme.colorScheme.primary, CircleShape) else Modifier),
@@ -816,43 +822,52 @@ private fun MiniPipeline(processes: List<ProcessBriefDto>, currentId: Int, curre
                             Icons.Filled.Check,
                             contentDescription = null,
                             tint = Color.White,
-                            modifier = Modifier.size(14.dp),
+                            modifier = Modifier.size(15.dp),
                         )
                     } else {
                         Text(
                             "${index + 1}",
                             color = if (dotColor == Color(0xFFD1D5DB)) Color(0xFF6B7280) else Color.White,
-                            fontSize = 11.sp,
+                            fontSize = 12.sp,
                             fontWeight = FontWeight.Bold,
                         )
                     }
                 }
                 Spacer(Modifier.height(2.dp))
+                // 工程名は行数が1行/2行でばらつくと、下に並ぶ担当者・工程納期の位置が
+                // 列ごとにズレて見えるため、常に2行分の高さを確保する（minLines）
                 Text(
                     p.process_name,
-                    fontSize = 11.sp,
-                    lineHeight = 13.sp,
+                    fontSize = 13.sp,
+                    lineHeight = 15.sp,
                     color = if (isMine) MaterialTheme.colorScheme.primary else Color(0xFF9CA3AF),
                     fontWeight = if (isMine) FontWeight.Bold else FontWeight.Normal,
                     maxLines = 2,
+                    minLines = 2,
+                    overflow = TextOverflow.Ellipsis,
                     textAlign = TextAlign.Center,
                 )
                 Spacer(Modifier.height(1.dp))
+                // カード内には余裕があるため省略はせず、2行まで折り返して全文を表示する。
+                // ただしminLinesで常に2行分の高さを確保し、行数が1行/2行でばらついて
+                // 下の工程納期の位置が列ごとにズレるのを防ぐ
                 Text(
                     p.worker?.takeIf { it.isNotBlank() } ?: "未割当",
-                    fontSize = 10.sp,
-                    lineHeight = 12.sp,
+                    fontSize = 12.sp,
+                    lineHeight = 14.sp,
                     color = if (isSelfWorker) MaterialTheme.colorScheme.primary else Color(0xFFB0B7C0),
                     fontWeight = if (isSelfWorker) FontWeight.Bold else FontWeight.Normal,
                     maxLines = 2,
+                    minLines = 2,
                     textAlign = TextAlign.Center,
                 )
                 DateUtil.monthDayLabel(p.process_deadline)?.let {
                     Text(
                         it,
-                        fontSize = 8.sp,
-                        lineHeight = 10.sp,
-                        color = Color(0xFFB0B7C0),
+                        fontSize = 13.sp,
+                        lineHeight = 15.sp,
+                        color = Color(0xFF6B7280),
+                        fontWeight = FontWeight.SemiBold,
                         maxLines = 1,
                         textAlign = TextAlign.Center,
                     )
@@ -863,10 +878,15 @@ private fun MiniPipeline(processes: List<ProcessBriefDto>, currentId: Int, curre
 }
 
 @Composable
-private fun InfoLabel(label: String, value: String) {
+private fun InfoLabel(label: String, value: String, unit: String? = null) {
     Column {
-        Text(label, color = Color(0xFF9CA3AF), fontSize = 11.sp)
-        Text(value, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+        Text(label, color = Color(0xFF9CA3AF), fontSize = 12.sp)
+        // 数字と単位を同じTextに混ぜると、端末フォントによっては桁の大きさがばらついて
+        // 見えることがあるため、数字と単位は別々のTextに分ける
+        Row {
+            Text(value, fontWeight = FontWeight.SemiBold, fontSize = 15.sp)
+            unit?.let { Text(it, fontWeight = FontWeight.SemiBold, fontSize = 15.sp) }
+        }
     }
 }
 
