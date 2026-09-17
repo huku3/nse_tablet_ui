@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringPreferencesKey
+import androidx.datastore.preferences.core.stringSetPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import jp.co.nse.worker.BuildConfig
 import kotlinx.coroutines.flow.Flow
@@ -32,6 +33,7 @@ class SettingsStore(private val context: Context) {
         val CAN_MANAGE_PROCESS_ASSIGNMENTS = booleanPreferencesKey("can_manage_process_assignments")
         val CAN_MANAGE_REPORTS = booleanPreferencesKey("can_manage_reports")
         val ACCENT_COLOR = stringPreferencesKey("accent_color_hex")
+        val SEEN_ANNOUNCEMENT_IDS = stringSetPreferencesKey("seen_announcement_ids")
     }
 
     @Volatile
@@ -58,6 +60,21 @@ class SettingsStore(private val context: Context) {
     /** 現在ログイン中アカウントのマイページ設定色（"#RRGGBB"）。未設定時はアプリの既定色 */
     val accentColorFlow: Flow<String> =
         context.dataStore.data.map { it[Keys.ACCENT_COLOR] ?: DEFAULT_ACCENT_HEX }
+
+    /**
+     * ダッシュボードで既に開いた（詳細画面を見た）お知らせのID集合。端末内のみで完結する
+     * 既読管理で、管理者側への報告は行わない。共有端末で別の作業者に切り替わったときに
+     * 前の人の既読状態を引き継がないよう、ログアウト時にクリアする（clearToken参照）
+     */
+    val seenAnnouncementIdsFlow: Flow<Set<String>> =
+        context.dataStore.data.map { it[Keys.SEEN_ANNOUNCEMENT_IDS] ?: emptySet() }
+
+    suspend fun markAnnouncementSeen(announcementId: Int) {
+        context.dataStore.edit {
+            val current = it[Keys.SEEN_ANNOUNCEMENT_IDS] ?: emptySet()
+            it[Keys.SEEN_ANNOUNCEMENT_IDS] = current + announcementId.toString()
+        }
+    }
 
     suspend fun saveToken(
         token: String,
@@ -100,6 +117,7 @@ class SettingsStore(private val context: Context) {
             it.remove(Keys.CAN_VIEW_SHIPPING)
             it.remove(Keys.CAN_MANAGE_PROCESS_ASSIGNMENTS)
             it.remove(Keys.CAN_MANAGE_REPORTS)
+            it.remove(Keys.SEEN_ANNOUNCEMENT_IDS)
             // ACCENT_COLORはここでは消さない。消すとMainActivityが購読しているaccentColorFlowが
             // 即座にデフォルト色へ変わり、ログアウトの瞬間だけテーマ色が一瞬切り替わって見える。
             // 次にログインした人の色はsaveToken()が同じトランザクションで必ず上書きするため、

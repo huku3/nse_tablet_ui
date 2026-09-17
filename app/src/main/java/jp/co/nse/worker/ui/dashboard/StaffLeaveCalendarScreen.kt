@@ -176,6 +176,8 @@ fun StaffLeaveCalendarScreen(
                 colors = TopAppBarDefaults.centerAlignedTopAppBarColors(
                     containerColor = MaterialTheme.colorScheme.primary,
                     titleContentColor = MaterialTheme.colorScheme.onPrimary,
+                    navigationIconContentColor = MaterialTheme.colorScheme.onPrimary,
+                    actionIconContentColor = MaterialTheme.colorScheme.onPrimary,
                 ),
             )
         },
@@ -229,6 +231,8 @@ private fun StaffLeaveCalendarContent(
     onNextMonth: () -> Unit,
 ) {
     val weeks = remember(yearMonth) { monthWeeks(yearMonth) }
+    // 有給取得状況は当月より前を見せる必要が無いため、前月ボタンは当月まで来たら無効化する
+    val canGoPrev = remember(yearMonth) { yearMonth > YearMonth.now() }
 
     Column(modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
         Column(
@@ -240,6 +244,7 @@ private fun StaffLeaveCalendarContent(
         ) {
             CalendarMonthHeader(
                 label = "${yearMonth.year}年${yearMonth.monthValue}月",
+                canGoPrev = canGoPrev,
                 onPrevMonth = onPrevMonth,
                 onNextMonth = onNextMonth,
             )
@@ -276,7 +281,7 @@ private fun StaffLeaveCalendarContent(
 }
 
 @Composable
-private fun CalendarMonthHeader(label: String, onPrevMonth: () -> Unit, onNextMonth: () -> Unit) {
+private fun CalendarMonthHeader(label: String, canGoPrev: Boolean, onPrevMonth: () -> Unit, onNextMonth: () -> Unit) {
     Row(
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.SpaceBetween,
@@ -284,7 +289,7 @@ private fun CalendarMonthHeader(label: String, onPrevMonth: () -> Unit, onNextMo
     ) {
         Text(label, fontWeight = FontWeight.ExtraBold, fontSize = 22.sp, color = MaterialTheme.colorScheme.onSurface)
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            CalendarNavButton(icon = Icons.Filled.ChevronLeft, contentDescription = "前月", onClick = onPrevMonth)
+            CalendarNavButton(icon = Icons.Filled.ChevronLeft, contentDescription = "前月", enabled = canGoPrev, onClick = onPrevMonth)
             CalendarNavButton(icon = Icons.Filled.ChevronRight, contentDescription = "翌月", onClick = onNextMonth)
         }
     }
@@ -294,17 +299,23 @@ private fun CalendarMonthHeader(label: String, onPrevMonth: () -> Unit, onNextMo
 private fun CalendarNavButton(
     icon: androidx.compose.ui.graphics.vector.ImageVector,
     contentDescription: String,
+    enabled: Boolean = true,
     onClick: () -> Unit,
 ) {
     Box(
         modifier = Modifier
             .clip(CircleShape)
-            .background(Indigo50)
-            .clickable(onClick = onClick)
+            .background(if (enabled) Indigo50 else Color(0xFFF3F4F6))
+            .clickable(enabled = enabled, onClick = onClick)
             .padding(8.dp),
         contentAlignment = Alignment.Center,
     ) {
-        Icon(icon, contentDescription = contentDescription, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(28.dp))
+        Icon(
+            icon,
+            contentDescription = contentDescription,
+            tint = if (enabled) MaterialTheme.colorScheme.primary else Color(0xFFD1D5DB),
+            modifier = Modifier.size(28.dp),
+        )
     }
 }
 

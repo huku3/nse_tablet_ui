@@ -174,6 +174,8 @@ fun TaskDetailScreen(
                 colors = TopAppBarDefaults.centerAlignedTopAppBarColors(
                     containerColor = MaterialTheme.colorScheme.primary,
                     titleContentColor = MaterialTheme.colorScheme.onPrimary,
+                    navigationIconContentColor = MaterialTheme.colorScheme.onPrimary,
+                    actionIconContentColor = MaterialTheme.colorScheme.onPrimary,
                 ),
             )
         },
@@ -445,9 +447,9 @@ private fun DetailHeaderCard(detail: TaskDetailDto) {
     ) {
         Column(Modifier.padding(16.dp)) {
             Text(
-                "受注No.${order.id}",
+                "No.${order.id}",
                 fontWeight = FontWeight.Bold,
-                fontSize = 14.sp,
+                fontSize = 16.sp,
                 color = Color(0xFF6B7280),
             )
             Spacer(Modifier.height(2.dp))

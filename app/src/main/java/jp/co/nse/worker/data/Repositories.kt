@@ -145,6 +145,27 @@ class WorkerRepository(
         ApiResult.Failure(e.toUserMessage())
     }
 
+    /** ダッシュボードに表示する、現在表示条件を満たすお知らせ一覧 */
+    suspend fun announcements(): ApiResult<List<AnnouncementDto>> = try {
+        ApiResult.Success(apiProvider().announcements())
+    } catch (e: Throwable) {
+        ApiResult.Failure(e.toUserMessage())
+    }
+
+    /** 過去のお知らせも含めた一覧 */
+    suspend fun announcementHistory(): ApiResult<List<AnnouncementDto>> = try {
+        ApiResult.Success(apiProvider().announcementHistory())
+    } catch (e: Throwable) {
+        ApiResult.Failure(e.toUserMessage())
+    }
+
+    /** お知らせ詳細（本文・添付ファイルを含む） */
+    suspend fun announcementDetail(announcementId: Int): ApiResult<AnnouncementDto> = try {
+        ApiResult.Success(apiProvider().announcementDetail(announcementId))
+    } catch (e: Throwable) {
+        ApiResult.Failure(e.toUserMessage())
+    }
+
     /** バーコード値（発注番号/客先注文番号/受注ID）から担当工程を特定する */
     suspend fun findByBarcode(code: String): ApiResult<BarcodeResultDto> = try {
         ApiResult.Success(apiProvider().barcode(code))

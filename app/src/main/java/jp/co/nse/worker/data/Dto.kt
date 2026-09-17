@@ -339,6 +339,8 @@ data class NotificationDataDto(
     val reported_by: String? = null,
     val assigned_by: String? = null,
     val process_deadline: String? = null,
+    val part_number: String? = null,
+    val customer_name: String? = null,
 )
 
 @Serializable
@@ -596,6 +598,34 @@ data class ReportDto(
 data class UpdateReportStatusRequest(
     val status: String,
 )
+
+/**
+ * ダッシュボードに表示するお知らせ。管理者・工場長がWeb管理画面（announcements.manage権限）で
+ * 作成・編集する。タブレット側は現在表示条件を満たすものを取得して表示するだけで、
+ * 作成・編集・既読管理はタブレットからは行わない。
+ */
+@Serializable
+data class AnnouncementDto(
+    val id: Int,
+    val message: String,
+    val body: String? = null,
+    val is_urgent: Boolean = false,
+    val created_at: String? = null,
+    val creator_name: String? = null,
+    val creator_role_label: String? = null,
+    val has_detail_content: Boolean = false,
+    val attachments: List<AnnouncementAttachmentDto> = emptyList(),
+)
+
+@Serializable
+data class AnnouncementAttachmentDto(
+    val id: Int,
+    val url: String,
+    val file_type: String,
+    val original_filename: String,
+) {
+    val isImage: Boolean get() = file_type == "image"
+}
 
 /** 報告の対応ステータス。[apiValue] はサーバーに送信する値、[label] は画面表示用 */
 enum class ReportStatus(val apiValue: String, val label: String) {

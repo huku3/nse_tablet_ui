@@ -161,8 +161,6 @@ fun TaskListScreen(
     val snackbarHost = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
 
-    val lifecycleOwner = androidx.compose.ui.platform.LocalLifecycleOwner.current
-
     fun onScan() {
         jp.co.nse.worker.ui.scan.startBarcodeScan(
             context = context,
@@ -189,20 +187,13 @@ fun TaskListScreen(
         }
     }
 
-    // 画面復帰時（作業詳細から戻った時など）に一覧を再読み込みする
-    androidx.compose.runtime.DisposableEffect(lifecycleOwner) {
-        val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
-            if (event == androidx.lifecycle.Lifecycle.Event.ON_RESUME) {
-                vm.load()
-            }
-        }
-        lifecycleOwner.lifecycle.addObserver(observer)
-        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
-    }
-
     // 生産管理システム側の更新をタブレットにも反映するため、このタブが表示されている間
     // だけ30秒おきに裏側で再取得する（一覧が既にあるときはスピナーを出さず静かに更新）。
-    // タブに切り替わった瞬間にも即座に1回再取得する
+    // タブに切り替わった瞬間や、画面復帰時（作業詳細から戻った時など、このNavBackStackEntryの
+    // ライフサイクルがRESUMEDへ戻った時）にも、repeatOnLifecycle(RESUMED)により即座に1回再取得する
+    // （以前はこことは別にON_RESUMEで明示的にvm.load()する処理もあったが、
+    // 完全に重複するリクエストになっていたため削除した。サーバー側のAPIレート制限に
+    // 引っかかりやすくなっていた一因）
     AutoRefreshEffect(isActive = isActive, refreshImmediately = true) { vm.load() }
 
     Scaffold(
@@ -237,6 +228,8 @@ fun TaskListScreen(
                 colors = TopAppBarDefaults.centerAlignedTopAppBarColors(
                     containerColor = MaterialTheme.colorScheme.primary,
                     titleContentColor = MaterialTheme.colorScheme.onPrimary,
+                    navigationIconContentColor = MaterialTheme.colorScheme.onPrimary,
+                    actionIconContentColor = MaterialTheme.colorScheme.onPrimary,
                 ),
                 actions = {
                     HeaderUserLabel(userName)

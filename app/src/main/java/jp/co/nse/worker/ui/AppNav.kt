@@ -14,6 +14,8 @@ import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import android.net.Uri
 import jp.co.nse.worker.appContainer
+import jp.co.nse.worker.ui.announcement.AnnouncementDetailScreen
+import jp.co.nse.worker.ui.announcement.AnnouncementListScreen
 import jp.co.nse.worker.ui.assignment.AssignmentDetailScreen
 import jp.co.nse.worker.ui.checksheet.CheckSheetScreen
 import jp.co.nse.worker.ui.dashboard.DashboardScreen
@@ -41,8 +43,11 @@ object Routes {
     const val REPORT = "report"
     const val REPORT_LIST = "report-list"
     const val REPORT_DETAIL = "report-detail/{reportId}"
+    const val ANNOUNCEMENT_LIST = "announcement-list"
+    const val ANNOUNCEMENT_DETAIL = "announcement-detail/{announcementId}"
 
     fun reportDetail(reportId: Int) = "report-detail/$reportId"
+    fun announcementDetail(announcementId: Int) = "announcement-detail/$announcementId"
     const val DRAWING = "drawing/{processId}?title={title}&orderId={orderId}&poNumber={poNumber}"
     const val CHECKSHEET = "checksheet/{orderId}"
     const val STAFF_LEAVE_CALENDAR = "staff-leave-calendar?date={date}"
@@ -141,16 +146,6 @@ fun AppNav() {
 
         composable(Routes.DASHBOARD) {
             DashboardScreen(
-                // ログイン直後はpopUpTo(LOGIN){inclusive=true}でスタックがダッシュボード1件だけに
-                // なるため、popBackStack()が戻り先を持たずスタックを空にしてしまい、NavHostが
-                // 何も描画できず真っ白なまま操作不能になる。戻れない場合はホームへ逃がす
-                onBack = {
-                    if (!navController.popBackStackSafely()) {
-                        navController.navigateSafely(Routes.home()) {
-                            popUpTo(Routes.DASHBOARD) { inclusive = true }
-                        }
-                    }
-                },
                 onContinue = {
                     container.notificationCenter.startPolling()
                     navController.navigateSafely(Routes.home()) {
@@ -160,6 +155,8 @@ fun AppNav() {
                 onLogout = logout,
                 onOpenCheckSheet = { orderId -> navController.navigateSafely(Routes.checksheet(orderId)) },
                 onOpenStaffLeaveCalendar = { date -> navController.navigateSafely(Routes.staffLeaveCalendar(date)) },
+                onOpenAnnouncementHistory = { navController.navigateSafely(Routes.ANNOUNCEMENT_LIST) },
+                onOpenAnnouncementDetail = { id -> navController.navigateSafely(Routes.announcementDetail(id)) },
             )
         }
 
@@ -326,6 +323,27 @@ fun AppNav() {
             ReportDetailScreen(
                 reportId = reportId,
                 onBack = { navController.popBackStackSafely() },
+                onLogout = logout,
+            )
+        }
+
+        composable(Routes.ANNOUNCEMENT_LIST) {
+            AnnouncementListScreen(
+                onBack = { navController.popBackStackSafely() },
+                onOpenDetail = { id -> navController.navigateSafely(Routes.announcementDetail(id)) },
+                onLogout = logout,
+            )
+        }
+
+        composable(
+            route = Routes.ANNOUNCEMENT_DETAIL,
+            arguments = listOf(navArgument("announcementId") { type = NavType.IntType }),
+        ) { backStackEntry ->
+            val announcementId = backStackEntry.arguments?.getInt("announcementId") ?: 0
+            AnnouncementDetailScreen(
+                announcementId = announcementId,
+                onBack = { navController.popBackStackSafely() },
+                onOpenHistory = { navController.navigateSafely(Routes.ANNOUNCEMENT_LIST) },
                 onLogout = logout,
             )
         }

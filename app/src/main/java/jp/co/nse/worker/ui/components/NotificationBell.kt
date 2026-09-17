@@ -22,6 +22,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Build
 import androidx.compose.material.icons.filled.Campaign
 import androidx.compose.material.icons.filled.EventBusy
+import androidx.compose.material.icons.filled.Inventory2
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.NotificationsActive
 import androidx.compose.material.icons.filled.NotificationsNone
@@ -135,10 +136,22 @@ fun NotificationBell(isActive: Boolean = true) {
                     feedback()
                     showSheet = false
                     center.consumeJustArrived()
-                    notification.data.process_id?.let { context.appContainer.openTask?.invoke(it) }
+                    openNotificationTarget(context, notification)
                 },
             )
         }
+    }
+}
+
+/**
+ * 通知の種類に応じたタップ時の遷移先。工程に紐づく通知は工程詳細へ、
+ * 支給品在庫の一致通知は工程が無いため在庫タブへ切り替える。
+ */
+private fun openNotificationTarget(context: android.content.Context, notification: NotificationDto) {
+    val data = notification.data
+    when {
+        data.process_id != null -> context.appContainer.openTask?.invoke(data.process_id)
+        data.type == "material_stock_match" -> context.appContainer.openHomeTab?.invoke("INVENTORY")
     }
 }
 
@@ -203,7 +216,7 @@ fun NotificationPreviewCard(modifier: Modifier = Modifier) {
                     feedback()
                     showSheet = false
                     center.consumeJustArrived()
-                    notification.data.process_id?.let { context.appContainer.openTask?.invoke(it) }
+                    openNotificationTarget(context, notification)
                 },
             )
         }
@@ -254,6 +267,7 @@ private fun notificationSummary(notification: NotificationDto): String {
         "process_broken" -> "工程が故障中として報告されました"
         "process_deadline_overdue" -> "${orderLabel}の工程納期を過ぎています"
         "process_worker_leave_conflict" -> "${data.worker ?: "担当者"}さんは${orderLabel}の工程納期に休暇予定です"
+        "material_stock_match" -> "${orderLabel}の支給品在庫があります。引き当てをご確認ください"
         else -> "お知らせ"
     }
 }
@@ -346,6 +360,12 @@ private fun NotificationRow(
                 Icons.Filled.EventBusy,
                 Color(0xFFDB2777),
                 "${data.worker ?: "担当者"}さんは${orderLabel}の工程納期に休暇予定です。担当の見直しをご検討ください。",
+            )
+        "material_stock_match" ->
+            Triple(
+                Icons.Filled.Inventory2,
+                Color(0xFFD97706),
+                "${data.customer_name ?: orderLabel}の${data.part_name ?: "受注"}に支給品在庫があります。引き当てをご確認ください。",
             )
         else -> Triple(Icons.Filled.Notifications, Color(0xFF6B7280), "お知らせ")
     }

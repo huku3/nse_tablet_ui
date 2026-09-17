@@ -107,13 +107,21 @@ class AssignmentDetailViewModel(
     var workers by mutableStateOf<List<WorkerDto>>(emptyList())
         private set
     private var processAssignments by mutableStateOf(ProcessAssignmentsResponse())
-    /** 本日休暇の作業者名（担当者選択ダイアログで選択不可にする対象） */
-    var todayLeaveWorkerNames by mutableStateOf<Set<String>>(emptySet())
+    /**
+     * 担当者選択ダイアログで選択不可にする対象日（工程納期があればその日、未設定なら本日）の
+     * 休暇の作業者名。[loadPickerLeaveWorkers]でダイアログを開くたびに対象日を指定して取得する
+     * （先に工程納期を設定してから担当者を選ぶ順番でも正しく判定できるようにするため）
+     */
+    var pickerLeaveWorkerNames by mutableStateOf<Set<String>>(emptySet())
         private set
-    /** 工程納期カレンダーで選択不可にする、割り当て中の作業者の休暇予定日（表示中の月分） */
-    var deadlineWorkerLeaveDates by mutableStateOf<Set<String>>(emptySet())
+    private var loadedPickerLeaveDate: LocalDate? = null
+    /**
+     * 工程納期カレンダーに表示する、精密部品製造課の休暇予定日（表示中の月分、日付→休暇者名の一覧）。
+     * 担当者が未割当ての工程でも参考として全員分を表示できるよう、特定の作業者に絞らず取得する
+     */
+    var deadlineLeavesByDate by mutableStateOf<Map<String, List<String>>>(emptyMap())
         private set
-    private var loadedDeadlineLeaveKey: Pair<String, YearMonth>? = null
+    private var loadedDeadlineLeaveMonth: YearMonth? = null
     var saving by mutableStateOf(false)
         private set
     var message by mutableStateOf<String?>(null)
@@ -215,28 +223,35 @@ class AssignmentDetailViewModel(
                 is ApiResult.Success -> order = result.data
                 is ApiResult.Failure -> error = result.message
             }
-            val today = LocalDate.now().toString()
-            when (val leaves = repo.leaves(today, today, StaffLeaveDepartment)) {
-                is ApiResult.Success -> todayLeaveWorkerNames =
-                    leaves.data.days.flatMap { it.leaves }.map { it.user_name }.toSet()
-                is ApiResult.Failure -> { /* 取得失敗時は選択制限をかけないだけにする */ }
-            }
             loading = false
         }
     }
 
     /**
-     * 工程納期カレンダーで表示中の月について、割り当て中の作業者の休暇予定日を取得する。
-     * 同じ（作業者・月）の組み合わせは再取得しない。
+     * 担当者選択ダイアログを開くたびに呼ぶ。[date]（工程納期があればその日、未設定なら本日）に
+     * 休暇の作業者名を取得する。同じ日付なら再取得しない
      */
-    fun ensureDeadlineWorkerLeaveLoaded(workerName: String?, visibleMonth: YearMonth) {
-        if (workerName.isNullOrBlank()) {
-            deadlineWorkerLeaveDates = emptySet()
-            return
+    fun loadPickerLeaveWorkers(date: LocalDate) {
+        if (date == loadedPickerLeaveDate) return
+        loadedPickerLeaveDate = date
+        viewModelScope.launch {
+            val iso = date.toString()
+            when (val leaves = repo.leaves(iso, iso, StaffLeaveDepartment)) {
+                is ApiResult.Success -> pickerLeaveWorkerNames =
+                    leaves.data.days.flatMap { it.leaves }.map { it.user_name }.toSet()
+                is ApiResult.Failure -> { /* 取得失敗時は選択制限をかけないだけにする */ }
+            }
         }
-        val key = workerName to visibleMonth
-        if (key == loadedDeadlineLeaveKey) return
-        loadedDeadlineLeaveKey = key
+    }
+
+    /**
+     * 工程納期カレンダーで表示中の月について、精密部品製造課全員分の休暇予定日を取得する
+     * （担当者が未割当ての工程でも参考表示できるように、特定の作業者には絞らない）。
+     * 同じ月なら再取得しない。
+     */
+    fun ensureDeadlineLeaveLoaded(visibleMonth: YearMonth) {
+        if (visibleMonth == loadedDeadlineLeaveMonth) return
+        loadedDeadlineLeaveMonth = visibleMonth
         viewModelScope.launch {
             when (
                 val result = repo.leaves(
@@ -245,11 +260,10 @@ class AssignmentDetailViewModel(
                     StaffLeaveDepartment,
                 )
             ) {
-                is ApiResult.Success -> deadlineWorkerLeaveDates = result.data.days
-                    .filter { day -> day.leaves.any { it.user_name == workerName } }
-                    .map { it.date }
-                    .toSet()
-                is ApiResult.Failure -> deadlineWorkerLeaveDates = emptySet()
+                is ApiResult.Success -> deadlineLeavesByDate = result.data.days
+                    .associate { day -> day.date to day.leaves.map { it.user_name } }
+                    .filterValues { it.isNotEmpty() }
+                is ApiResult.Failure -> deadlineLeavesByDate = emptyMap()
             }
         }
     }
@@ -401,6 +415,8 @@ fun AssignmentDetailScreen(
                 colors = TopAppBarDefaults.centerAlignedTopAppBarColors(
                     containerColor = MaterialTheme.colorScheme.primary,
                     titleContentColor = MaterialTheme.colorScheme.onPrimary,
+                    navigationIconContentColor = MaterialTheme.colorScheme.onPrimary,
+                    actionIconContentColor = MaterialTheme.colorScheme.onPrimary,
                 ),
             )
         },
@@ -585,13 +601,19 @@ fun AssignmentDetailScreen(
 
     pickerProcess?.let { proc ->
         vm.order?.let { order ->
+            // 既に工程納期が設定されていれば、その日を基準に休暇を判定する（未設定なら本日）。
+            // 先に工程納期を選んでから担当者を選ぶ順番でも、休暇の担当者を正しく警告するため
+            val leaveCheckDate = DateUtil.parse(proc.process_deadline) ?: LocalDate.now()
+            androidx.compose.runtime.LaunchedEffect(proc.id, leaveCheckDate) {
+                vm.loadPickerLeaveWorkers(leaveCheckDate)
+            }
             WorkerPickerDialog(
                 order = order,
                 processName = proc.process_name,
                 current = proc.worker,
                 workers = vm.eligibleWorkers(proc.process_name),
                 saving = vm.saving,
-                onLeaveToday = vm.todayLeaveWorkerNames,
+                leaveWorkerNames = vm.pickerLeaveWorkerNames,
                 onSelect = { name ->
                     pickerProcess = null
                     vm.assign(proc.id, name)
@@ -618,12 +640,12 @@ fun AssignmentDetailScreen(
                 maxDate = maxDate,
                 holidayDates = vm.holidayDates,
                 overrideDates = vm.overrideDates,
-                workerLeaveDates = vm.deadlineWorkerLeaveDates,
+                leavesByDate = vm.deadlineLeavesByDate,
                 saving = vm.saving,
                 serverError = vm.deadlineError,
                 onVisibleMonthChanged = {
                     vm.ensureHolidaysLoaded(it)
-                    vm.ensureDeadlineWorkerLeaveLoaded(proc.worker, it)
+                    vm.ensureDeadlineLeaveLoaded(it)
                 },
                 onConfirm = { date ->
                     vm.updateDeadline(proc.id, date) { deadlineProcess = null }
@@ -687,7 +709,7 @@ fun OrderContextCard(order: OrderAssignDto) {
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Text("受注No.${order.id}", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color(0xFF6B7280))
+            Text("No.${order.id}", fontSize = 15.sp, fontWeight = FontWeight.Bold, color = Color(0xFF6B7280))
             Box(
                 modifier = Modifier
                     .clip(RoundedCornerShape(50))
@@ -815,7 +837,7 @@ fun WorkerPickerDialog(
     current: String?,
     workers: List<WorkerDto>,
     saving: Boolean,
-    onLeaveToday: Set<String> = emptySet(),
+    leaveWorkerNames: Set<String> = emptySet(),
     onSelect: (String?) -> Unit,
     onDismiss: () -> Unit,
 ) {
@@ -841,7 +863,7 @@ fun WorkerPickerDialog(
                             name = w.name,
                             color = parseHex(w.color),
                             selected = current == w.name,
-                            disabledReason = "本日休暇のため選択できません".takeIf { w.name in onLeaveToday },
+                            disabledReason = "休暇予定のため選択できません".takeIf { w.name in leaveWorkerNames },
                             onClick = { onSelect(w.name) },
                         )
                     }
@@ -859,7 +881,8 @@ fun WorkerPickerDialog(
 
 /**
  * [disabledReason]を渡すと、名前は表示したまま選択できない状態にし、理由を名前の下に表示する
- * （例：本日休暇の作業者。担当工程マスタからは外さず、その日だけ選べないようにするための表示）。
+ * （例：工程納期（未設定なら本日）が休暇予定日の作業者。担当工程マスタからは外さず、
+ * その日だけ選べないようにするための表示）。
  */
 @Composable
 private fun WorkerRow(

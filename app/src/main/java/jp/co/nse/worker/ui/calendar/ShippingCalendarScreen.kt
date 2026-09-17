@@ -317,6 +317,10 @@ fun ShippingCalendarScreen(
     val userName = rememberCurrentUserName()
     val today = remember { LocalDate.now() }
     var selectedDate by remember { mutableStateOf(today) }
+    // カレンダーの日付を直接タップして選んだ時だけ、下の出荷一覧へスクロールする。
+    // 月移動（goToMonth）でもselectedDateは更新されるが、その際はスクロールさせたくないため、
+    // selectedDateそのものではなく、日付タップ時だけ増やすこのカウンターをトリガーに使う
+    var dateSelectionTick by remember { mutableStateOf(0) }
     val snackbarHost = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
     val onError: (String) -> Unit = { msg -> scope.launch { snackbarHost.showSnackbar(msg) } }
@@ -369,6 +373,8 @@ fun ShippingCalendarScreen(
                 colors = TopAppBarDefaults.centerAlignedTopAppBarColors(
                     containerColor = MaterialTheme.colorScheme.primary,
                     titleContentColor = MaterialTheme.colorScheme.onPrimary,
+                    navigationIconContentColor = MaterialTheme.colorScheme.onPrimary,
+                    actionIconContentColor = MaterialTheme.colorScheme.onPrimary,
                 ),
             )
         },
@@ -399,7 +405,8 @@ fun ShippingCalendarScreen(
                     busyOrderIds = vm.busyOrderIds,
                     bulkBusy = vm.bulkBusy,
                     bulkUndoMessage = vm.bulkUndoMessage,
-                    onSelectDate = { feedback(); selectedDate = it },
+                    dateSelectionTick = dateSelectionTick,
+                    onSelectDate = { feedback(); selectedDate = it; dateSelectionTick++ },
                     onPrevMonth = { goToMonth(vm.yearMonth.minusMonths(1)) },
                     onNextMonth = { goToMonth(vm.yearMonth.plusMonths(1)) },
                     onOpenCheckSheet = onOpenCheckSheet,
@@ -446,6 +453,7 @@ private fun ShippingCalendarContent(
     busyOrderIds: Set<Int>,
     bulkBusy: Boolean,
     bulkUndoMessage: String?,
+    dateSelectionTick: Int,
     onSelectDate: (LocalDate) -> Unit,
     onPrevMonth: () -> Unit,
     onNextMonth: () -> Unit,
@@ -462,10 +470,10 @@ private fun ShippingCalendarContent(
     }
 
     // 日付セルをタップした直後、選択日の出荷一覧（カレンダーの下）が画面外のままにならないよう、
-    // 選択日が変わるたびにその一覧が見える位置まで自動でスクロールする
+    // その一覧が見える位置まで自動でスクロールする。月移動時のselectedDate更新では発火させない
     val selectedDayListBringIntoViewRequester = remember { BringIntoViewRequester() }
-    LaunchedEffect(selectedDate) {
-        selectedDayListBringIntoViewRequester.bringIntoView()
+    LaunchedEffect(dateSelectionTick) {
+        if (dateSelectionTick > 0) selectedDayListBringIntoViewRequester.bringIntoView()
     }
 
     Column(
@@ -838,8 +846,9 @@ private fun ShippingOrderRow(
             Spacer(Modifier.height(Space1 / 2))
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
-                    "受注No.${order.id}",
-                    fontSize = 12.sp,
+                    "No.${order.id}",
+                    fontSize = 15.sp,
+                    fontWeight = FontWeight.Bold,
                     color = Gray500.copy(alpha = dim),
                 )
                 Spacer(Modifier.width(Space2))

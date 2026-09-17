@@ -208,21 +208,16 @@ fun AssignmentListScreen(
         key = "AssignmentListViewModel:$mode",
         factory = viewModelFactory { initializer { AssignmentListViewModel(container.managerRepository, mode) } }
     )
-    val lifecycleOwner = androidx.compose.ui.platform.LocalLifecycleOwner.current
     val feedback = rememberClickFeedback()
     val userName = rememberCurrentUserName()
 
-    androidx.compose.runtime.DisposableEffect(lifecycleOwner) {
-        val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
-            if (event == androidx.lifecycle.Lifecycle.Event.ON_RESUME) vm.load()
-        }
-        lifecycleOwner.lifecycle.addObserver(observer)
-        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
-    }
-
     // 生産管理システム側の更新をタブレットにも反映するため、このタブが表示されている間
     // だけ30秒おきに裏側で再取得する（一覧が既にあるときはスピナーを出さず静かに更新）。
-    // タブに切り替わった瞬間にも即座に1回再取得する
+    // タブに切り替わった瞬間や、画面復帰時（受注詳細から戻った時など、このNavBackStackEntryの
+    // ライフサイクルがRESUMEDへ戻った時）にも、repeatOnLifecycle(RESUMED)により即座に1回再取得する
+    // （以前はこことは別にON_RESUMEで明示的にvm.load()する処理もあったが、
+    // 完全に重複するリクエストになっていたため削除した。サーバー側のAPIレート制限に
+    // 引っかかりやすくなっていた一因）
     AutoRefreshEffect(isActive = isActive, refreshImmediately = true) { vm.load() }
 
     Scaffold(
@@ -233,6 +228,8 @@ fun AssignmentListScreen(
                 colors = TopAppBarDefaults.centerAlignedTopAppBarColors(
                     containerColor = MaterialTheme.colorScheme.primary,
                     titleContentColor = MaterialTheme.colorScheme.onPrimary,
+                    navigationIconContentColor = MaterialTheme.colorScheme.onPrimary,
+                    actionIconContentColor = MaterialTheme.colorScheme.onPrimary,
                 ),
                 actions = {
                     HeaderUserLabel(userName)
@@ -321,7 +318,6 @@ fun AssignmentListScreen(
                                         OrderAssignCard(
                                             order = order,
                                             daysOverdue = vm.businessDaysFor(order),
-                                            emphasizePartName = mode == OrderListMode.ORDER_LIST,
                                             onClick = { onOpenOrder(order.id) },
                                         )
                                     }
@@ -539,7 +535,6 @@ private fun StatusFilterCard(
 private fun OrderAssignCard(
     order: OrderAssignDto,
     daysOverdue: Int?,
-    emphasizePartName: Boolean = false,
     onClick: () -> Unit,
 ) {
     val total = order.processes.size
@@ -580,17 +575,17 @@ private fun OrderAssignCard(
                         if (hasCustomerName) {
                             Text(
                                 order.customer_name ?: "",
-                                fontWeight = if (emphasizePartName) FontWeight.SemiBold else FontWeight.ExtraBold,
-                                fontSize = if (emphasizePartName) 14.sp else 20.sp,
-                                color = if (emphasizePartName) Color(0xFF6B7280) else MaterialTheme.colorScheme.onSurface,
+                                fontWeight = FontWeight.SemiBold,
+                                fontSize = 14.sp,
+                                color = Color(0xFF6B7280),
                             )
                             Spacer(Modifier.height(2.dp))
                         }
                         Text(
                             order.part_name ?: "—",
-                            fontWeight = if (!hasCustomerName || emphasizePartName) FontWeight.Bold else FontWeight.SemiBold,
-                            fontSize = if (!hasCustomerName || emphasizePartName) 19.sp else 15.sp,
-                            color = if (!hasCustomerName || emphasizePartName) MaterialTheme.colorScheme.onSurface else Color(0xFF6B7280),
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 19.sp,
+                            color = MaterialTheme.colorScheme.onSurface,
                         )
                     }
                     Spacer(Modifier.width(10.dp))
@@ -629,7 +624,7 @@ private fun OrderAssignCard(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(14.dp),
                 ) {
-                    Text("受注No.${order.id}", fontSize = 13.sp, color = Color(0xFF6B7280))
+                    Text("No.${order.id}", fontSize = 15.sp, fontWeight = FontWeight.Bold, color = Color(0xFF6B7280))
                     order.po_number?.let {
                         Text("発注 $it", fontSize = 13.sp, color = Color(0xFF6B7280))
                     }

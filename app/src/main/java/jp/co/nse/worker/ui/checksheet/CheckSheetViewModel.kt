@@ -34,13 +34,21 @@ class CheckSheetViewModel(
     var workers by mutableStateOf<List<WorkerDto>>(emptyList())
         private set
     private var processAssignments by mutableStateOf(ProcessAssignmentsResponse())
-    /** 本日休暇の作業者名（担当者選択ダイアログで選択不可にする対象） */
-    var todayLeaveWorkerNames by mutableStateOf<Set<String>>(emptySet())
+    /**
+     * 担当者選択ダイアログで選択不可にする対象日（工程納期があればその日、未設定なら本日）の
+     * 休暇の作業者名。[loadPickerLeaveWorkers]でダイアログを開くたびに対象日を指定して取得する
+     * （先に工程納期を設定してから担当者を選ぶ順番でも正しく判定できるようにするため）
+     */
+    var pickerLeaveWorkerNames by mutableStateOf<Set<String>>(emptySet())
         private set
-    /** 工程納期カレンダーで選択不可にする、割り当て中の作業者の休暇予定日（表示中の月分） */
-    var deadlineWorkerLeaveDates by mutableStateOf<Set<String>>(emptySet())
+    private var loadedPickerLeaveDate: LocalDate? = null
+    /**
+     * 工程納期カレンダーに表示する、精密部品製造課の休暇予定日（表示中の月分、日付→休暇者名の一覧）。
+     * 担当者が未割当ての工程でも参考として全員分を表示できるよう、特定の作業者に絞らず取得する
+     */
+    var deadlineLeavesByDate by mutableStateOf<Map<String, List<String>>>(emptyMap())
         private set
-    private var loadedDeadlineLeaveKey: Pair<String, YearMonth>? = null
+    private var loadedDeadlineLeaveMonth: YearMonth? = null
     var saving by mutableStateOf(false)
         private set
     var message by mutableStateOf<String?>(null)
@@ -80,9 +88,20 @@ class CheckSheetViewModel(
                 // 取得失敗時はeligibleWorkers()が全員表示にフォールバックする
                 is ApiResult.Failure -> { }
             }
-            val today = LocalDate.now().toString()
-            when (val leaves = managerRepo.leaves(today, today, StaffLeaveDepartment)) {
-                is ApiResult.Success -> todayLeaveWorkerNames =
+        }
+    }
+
+    /**
+     * 担当者選択ダイアログを開くたびに呼ぶ。[date]（工程納期があればその日、未設定なら本日）に
+     * 休暇の作業者名を取得する。同じ日付なら再取得しない
+     */
+    fun loadPickerLeaveWorkers(date: LocalDate) {
+        if (date == loadedPickerLeaveDate) return
+        loadedPickerLeaveDate = date
+        viewModelScope.launch {
+            val iso = date.toString()
+            when (val leaves = managerRepo.leaves(iso, iso, StaffLeaveDepartment)) {
+                is ApiResult.Success -> pickerLeaveWorkerNames =
                     leaves.data.days.flatMap { it.leaves }.map { it.user_name }.toSet()
                 is ApiResult.Failure -> { /* 取得失敗時は選択制限をかけないだけにする */ }
             }
@@ -90,17 +109,13 @@ class CheckSheetViewModel(
     }
 
     /**
-     * 工程納期カレンダーで表示中の月について、割り当て中の作業者の休暇予定日を取得する。
-     * 同じ（作業者・月）の組み合わせは再取得しない。
+     * 工程納期カレンダーで表示中の月について、精密部品製造課全員分の休暇予定日を取得する
+     * （担当者が未割当ての工程でも参考表示できるように、特定の作業者には絞らない）。
+     * 同じ月なら再取得しない。
      */
-    fun ensureDeadlineWorkerLeaveLoaded(workerName: String?, visibleMonth: YearMonth) {
-        if (workerName.isNullOrBlank()) {
-            deadlineWorkerLeaveDates = emptySet()
-            return
-        }
-        val key = workerName to visibleMonth
-        if (key == loadedDeadlineLeaveKey) return
-        loadedDeadlineLeaveKey = key
+    fun ensureDeadlineLeaveLoaded(visibleMonth: YearMonth) {
+        if (visibleMonth == loadedDeadlineLeaveMonth) return
+        loadedDeadlineLeaveMonth = visibleMonth
         viewModelScope.launch {
             when (
                 val result = managerRepo.leaves(
@@ -109,11 +124,10 @@ class CheckSheetViewModel(
                     StaffLeaveDepartment,
                 )
             ) {
-                is ApiResult.Success -> deadlineWorkerLeaveDates = result.data.days
-                    .filter { day -> day.leaves.any { it.user_name == workerName } }
-                    .map { it.date }
-                    .toSet()
-                is ApiResult.Failure -> deadlineWorkerLeaveDates = emptySet()
+                is ApiResult.Success -> deadlineLeavesByDate = result.data.days
+                    .associate { day -> day.date to day.leaves.map { it.user_name } }
+                    .filterValues { it.isNotEmpty() }
+                is ApiResult.Failure -> deadlineLeavesByDate = emptyMap()
             }
         }
     }

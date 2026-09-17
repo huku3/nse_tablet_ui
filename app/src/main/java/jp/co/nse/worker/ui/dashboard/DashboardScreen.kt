@@ -15,15 +15,17 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.automirrored.filled.Logout
+import androidx.compose.material.icons.filled.Campaign
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.Refresh
@@ -53,6 +55,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.ViewModel
@@ -61,12 +64,14 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import jp.co.nse.worker.appContainer
+import jp.co.nse.worker.data.AnnouncementDto
 import jp.co.nse.worker.data.ApiResult
 import jp.co.nse.worker.data.LeaveEntryDto
 import jp.co.nse.worker.data.ManagerRepository
 import jp.co.nse.worker.data.OrderAssignDto
 import jp.co.nse.worker.data.WorkStatus
 import jp.co.nse.worker.data.WorkerRepository
+import jp.co.nse.worker.ui.theme.Red500
 import jp.co.nse.worker.ui.components.HeaderTitle
 import jp.co.nse.worker.ui.components.HeaderLogo
 import jp.co.nse.worker.ui.components.HeaderOverflowMenu
@@ -152,6 +157,8 @@ class DashboardViewModel(
         private set
     var staffLeaveDays by mutableStateOf<List<StaffLeaveDaySummary>>(emptyList())
         private set
+    var announcements by mutableStateOf<List<AnnouncementDto>>(emptyList())
+        private set
 
     // 日付を選択したときにカード内へそのまま一覧表示できるよう、集計元の受注データも保持しておく
     private var materialWaitingOrders: List<OrderAssignDto> = emptyList()
@@ -186,7 +193,15 @@ class DashboardViewModel(
             loadMaterialWaitingSummary()
             if (canViewShipping) loadShippingSummary()
             loadStaffLeaveDays()
+            loadAnnouncements()
             loading = false
+        }
+    }
+
+    private suspend fun loadAnnouncements() {
+        when (val result = workerRepo.announcements()) {
+            is ApiResult.Success -> announcements = result.data
+            is ApiResult.Failure -> {}
         }
     }
 
@@ -214,12 +229,12 @@ class DashboardViewModel(
 
     /**
      * 材料待ち（status="material_waiting"）と材料到着日（status="material_arrived_date"）の
-     * 受注を、材料到着予定日（material_arrived_at）が直近3稼働日（本日・翌稼働日・翌々稼働日）の
+     * 受注を、材料到着予定日（material_arrived_at）が直近10稼働日（本日＋先の9稼働日）の
      * どれに当たるかで件数集計する。生産管理システム側はmaterial_arrived_atが今日以前になった
      * 時点で自動的にmaterial_waiting→material_arrived_dateへステータスを切り替えるため、
      * material_waitingだけを見ると「本日到着予定」の分がこの切り替えで抜け落ちてしまう。
      * 休日等で「明日」「明後日」が実際の稼働日とずれて誤解を招くため、日付そのものを
-     * ラベルに使う（出荷予定カードと同じ考え方）。
+     * ラベルに使う（出荷予定カードと同じ考え方）。横スクロールで全日分を表示する。
      */
     private suspend fun loadMaterialWaitingSummary() {
         val orders = when (val result = managerRepo.orders()) {
@@ -229,7 +244,7 @@ class DashboardViewModel(
         val today = LocalDate.now()
         val holidays = mutableSetOf<String>()
         val overrides = mutableSetOf<String>()
-        setOf(DateUtil.fiscalYearOf(today), DateUtil.fiscalYearOf(today.plusDays(14))).forEach { fy ->
+        setOf(DateUtil.fiscalYearOf(today), DateUtil.fiscalYearOf(today.plusDays(21))).forEach { fy ->
             when (val result = managerRepo.holidayCalendar(fy)) {
                 is ApiResult.Success -> {
                     holidays += result.data.holidays
@@ -240,7 +255,7 @@ class DashboardViewModel(
         }
         val targetDates = mutableListOf<LocalDate>()
         var cursor = today
-        while (targetDates.size < 3) {
+        while (targetDates.size < 10) {
             if (DateUtil.isWorkingDay(cursor, holidays, overrides)) targetDates += cursor
             cursor = cursor.plusDays(1)
         }
@@ -253,15 +268,16 @@ class DashboardViewModel(
     }
 
     /**
-     * 直近3稼働日分の出荷予定件数。休日マスタ（休日・例外稼働日）を参照して、
+     * 直近10稼働日分の出荷予定件数。休日マスタ（休日・例外稼働日）を参照して、
      * 土日・休日を除いた実際の稼働日だけを対象にする。「明日」「明後日」という表記は
      * 休日等で実際の稼働日とずれて誤解を招くため、日付そのものをラベルに使う。
+     * 横スクロールで全日分を表示する。
      */
     private suspend fun loadShippingSummary() {
         val today = LocalDate.now()
         val holidays = mutableSetOf<String>()
         val overrides = mutableSetOf<String>()
-        setOf(DateUtil.fiscalYearOf(today), DateUtil.fiscalYearOf(today.plusDays(14))).forEach { fy ->
+        setOf(DateUtil.fiscalYearOf(today), DateUtil.fiscalYearOf(today.plusDays(21))).forEach { fy ->
             when (val result = managerRepo.holidayCalendar(fy)) {
                 is ApiResult.Success -> {
                     holidays += result.data.holidays
@@ -273,7 +289,7 @@ class DashboardViewModel(
 
         val targetDates = mutableListOf<LocalDate>()
         var cursor = today
-        while (targetDates.size < 3) {
+        while (targetDates.size < 10) {
             if (DateUtil.isWorkingDay(cursor, holidays, overrides)) targetDates += cursor
             cursor = cursor.plusDays(1)
         }
@@ -337,11 +353,12 @@ class DashboardViewModel(
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun DashboardScreen(
-    onBack: () -> Unit,
     onContinue: () -> Unit = {},
     onLogout: () -> Unit = {},
     onOpenCheckSheet: (orderId: Int) -> Unit = {},
     onOpenStaffLeaveCalendar: (LocalDate) -> Unit = {},
+    onOpenAnnouncementHistory: () -> Unit = {},
+    onOpenAnnouncementDetail: (announcementId: Int) -> Unit = {},
 ) {
     val context = LocalContext.current
     val container = context.appContainer
@@ -352,6 +369,7 @@ fun DashboardScreen(
     val today = remember { LocalDate.now() }
 
     val canViewShipping by container.settings.canViewShippingFlow.collectAsState(initial = false)
+    val seenAnnouncementIds by container.settings.seenAnnouncementIdsFlow.collectAsState(initial = emptySet())
 
     val vm: DashboardViewModel = viewModel(
         factory = viewModelFactory {
@@ -378,15 +396,8 @@ fun DashboardScreen(
     Scaffold(
         topBar = {
             CenterAlignedTopAppBar(
-                title = { HeaderTitle("ダッシュボード") },
-                navigationIcon = {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        IconButton(onClick = { feedback(); onBack() }) {
-                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "戻る", tint = MaterialTheme.colorScheme.onPrimary)
-                        }
-                        HeaderLogo()
-                    }
-                },
+                title = { HeaderTitle("ダッシュボード", showDate = false) },
+                navigationIcon = { HeaderLogo() },
                 actions = {
                     HeaderUserLabel(userName)
                     NotificationBell()
@@ -401,6 +412,8 @@ fun DashboardScreen(
                 colors = TopAppBarDefaults.centerAlignedTopAppBarColors(
                     containerColor = MaterialTheme.colorScheme.primary,
                     titleContentColor = MaterialTheme.colorScheme.onPrimary,
+                    navigationIconContentColor = MaterialTheme.colorScheme.onPrimary,
+                    actionIconContentColor = MaterialTheme.colorScheme.onPrimary,
                 ),
             )
         },
@@ -422,12 +435,16 @@ fun DashboardScreen(
                     materialWaitingSummary = vm.materialWaitingSummary,
                     shippingSummary = if (canViewShipping) vm.shippingSummary else null,
                     staffLeaveDays = vm.staffLeaveDays,
+                    announcements = vm.announcements,
+                    seenAnnouncementIds = seenAnnouncementIds,
                     taskRowsFor = vm::taskRowsFor,
                     materialRowsFor = vm::materialRowsFor,
                     shippingRowsFor = vm::shippingRowsFor,
                     onContinue = onContinue,
                     onOpenCheckSheet = onOpenCheckSheet,
                     onOpenStaffLeaveCalendar = onOpenStaffLeaveCalendar,
+                    onOpenAnnouncementHistory = onOpenAnnouncementHistory,
+                    onOpenAnnouncementDetail = onOpenAnnouncementDetail,
                 )
                 ScrollToTopFab(
                     visible = listState.firstVisibleItemIndex > 0,
@@ -460,12 +477,16 @@ private fun DashboardContent(
     materialWaitingSummary: List<MaterialWaitingDaySummary>?,
     shippingSummary: List<ShippingDaySummary>?,
     staffLeaveDays: List<StaffLeaveDaySummary>,
+    announcements: List<AnnouncementDto>,
+    seenAnnouncementIds: Set<String>,
     taskRowsFor: (TaskStatCategory) -> List<OrderTableRow>,
     materialRowsFor: (LocalDate) -> List<OrderTableRow>,
     shippingRowsFor: (LocalDate) -> List<OrderTableRow>,
     onContinue: () -> Unit,
     onOpenCheckSheet: (orderId: Int) -> Unit = {},
     onOpenStaffLeaveCalendar: (LocalDate) -> Unit = {},
+    onOpenAnnouncementHistory: () -> Unit = {},
+    onOpenAnnouncementDetail: (announcementId: Int) -> Unit = {},
 ) {
     val feedback = rememberClickFeedback()
     var materialExpanded by remember { mutableStateOf(false) }
@@ -479,23 +500,50 @@ private fun DashboardContent(
         verticalArrangement = Arrangement.spacedBy(14.dp),
     ) {
         item(key = "greeting") {
-            Column {
+            Column(modifier = Modifier.fillMaxWidth()) {
+                val dateSentence = "${today.monthValue}月${today.dayOfMonth}日${DateUtil.weekdayKanji(today)}曜日。"
                 Text(
                     if (flower != null) {
-                        "こんにちは、${userName}さん。今日の花は${flower.name}、花言葉は${flower.meaning}です。"
+                        "こんにちは、${userName}さん！$dateSentence\n今日の花は${flower.name}、花言葉は${flower.meaning}です。"
                     } else {
-                        "こんにちは、${userName}さん。"
+                        "こんにちは、${userName}さん！$dateSentence"
                     },
                     fontWeight = FontWeight.ExtraBold,
-                    fontSize = 20.sp,
+                    fontSize = 26.sp,
+                    lineHeight = 40.sp,
                     color = MaterialTheme.colorScheme.onSurface,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.fillMaxWidth(),
                 )
-                Text(
-                    DateUtil.shortLabel(today),
-                    fontSize = 14.sp,
-                    color = Color(0xFF6B7280),
-                    modifier = Modifier.padding(top = 2.dp),
+            }
+        }
+
+        // 1度詳細を開いたお知らせは、次からダッシュボードでは目立たせない（端末内のみの既読管理）。
+        // 未読が残っていればそれぞれ個別のカードで表示し、タップで直接詳細を開く。
+        // 未読が無く、表示中のお知らせ自体はある場合は、控えめな一覧行の形でだけ残しておく。
+        // 表示中のお知らせが1件も無ければ、これまで通り履歴を確認できるプレースホルダーを出す。
+        val unseenAnnouncements = announcements.filter { it.id.toString() !in seenAnnouncementIds }
+        if (unseenAnnouncements.isNotEmpty()) {
+            items(unseenAnnouncements, key = { "announcement-${it.id}" }) { announcement ->
+                AnnouncementCard(
+                    announcement = announcement,
+                    onClick = { feedback(); onOpenAnnouncementDetail(announcement.id) },
                 )
+            }
+        } else if (announcements.isNotEmpty()) {
+            item(key = "announcements-seen") {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    announcements.forEach { announcement ->
+                        SeenAnnouncementRow(
+                            announcement = announcement,
+                            onClick = { feedback(); onOpenAnnouncementDetail(announcement.id) },
+                        )
+                    }
+                }
+            }
+        } else {
+            item(key = "announcements-empty") {
+                EmptyAnnouncementCard(onClick = { feedback(); onOpenAnnouncementHistory() })
             }
         }
 
@@ -612,6 +660,131 @@ private fun DashboardContent(
             ) {
                 Text("作業を始める", fontWeight = FontWeight.Bold, fontSize = 16.sp)
             }
+        }
+    }
+}
+
+/**
+ * 管理者・工場長がWeb管理画面（お知らせ管理）で作成したお知らせをカードで表示する。
+ * 緊急指定（is_urgent）のものは赤系で強調し、通常のものと見分けやすくする。
+ * ダッシュボードには最新（緊急優先）の1件だけを表示し、他にも表示中のお知らせがあれば
+ * [moreCount]で「ほかN件」と添える。タップすると詳細画面（本文・添付ファイル）を開く。
+ * 作成・編集・既読管理はタブレット側では行わない（Web管理画面のみ）。
+ */
+@Composable
+private fun AnnouncementCard(announcement: AnnouncementDto, onClick: () -> Unit) {
+    val urgent = announcement.is_urgent
+    val fromLabel = announcement.creator_role_label?.let { "${it}からのお知らせ" } ?: "お知らせ"
+    Card(
+        onClick = onClick,
+        colors = CardDefaults.cardColors(containerColor = if (urgent) Color(0xFFFEF2F2) else Color.White),
+        shape = RoundedCornerShape(16.dp),
+        border = if (urgent) BorderStroke(1.dp, Red500) else null,
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(16.dp),
+            verticalAlignment = Alignment.Top,
+        ) {
+            Icon(
+                Icons.Filled.Campaign,
+                contentDescription = null,
+                tint = if (urgent) Red500 else MaterialTheme.colorScheme.primary,
+                modifier = Modifier.size(22.dp),
+            )
+            Spacer(Modifier.width(10.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    fromLabel,
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = if (urgent) Red500 else Color(0xFF9CA3AF),
+                )
+                Spacer(Modifier.height(2.dp))
+                Text(
+                    announcement.message,
+                    fontSize = 14.sp,
+                    fontWeight = if (urgent) FontWeight.Bold else FontWeight.Normal,
+                    color = if (urgent) Color(0xFFB91C1C) else MaterialTheme.colorScheme.onSurface,
+                    maxLines = 2,
+                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                )
+            }
+        }
+    }
+}
+
+/**
+ * 表示中のお知らせが全て既読（詳細を開いたことがある）の場合に使う、控えめな一覧行。
+ * [AnnouncementCard]ほど目立たせる必要は無いが、内容自体は引き続き確認できるようにしておく。
+ */
+@Composable
+private fun SeenAnnouncementRow(announcement: AnnouncementDto, onClick: () -> Unit) {
+    Card(
+        onClick = onClick,
+        colors = CardDefaults.cardColors(containerColor = Color.White),
+        shape = RoundedCornerShape(12.dp),
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(
+                Icons.Filled.Campaign,
+                contentDescription = null,
+                tint = Color(0xFF9CA3AF),
+                modifier = Modifier.size(16.dp),
+            )
+            Spacer(Modifier.width(8.dp))
+            Text(
+                announcement.message,
+                fontSize = 13.sp,
+                color = Color(0xFF6B7280),
+                maxLines = 1,
+                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f),
+            )
+        }
+    }
+}
+
+/**
+ * 現在表示中のお知らせが1件も無い時に代わりに出す、控えめなプレースホルダー。
+ * これが無いと「お知らせを見に行く入り口」自体がダッシュボードから消えてしまうため、
+ * 常にこの枠だけは表示しておき、タップすれば過去のお知らせ履歴を確認できるようにする。
+ */
+@Composable
+private fun EmptyAnnouncementCard(onClick: () -> Unit) {
+    Card(
+        onClick = onClick,
+        colors = CardDefaults.cardColors(containerColor = Color.White),
+        shape = RoundedCornerShape(16.dp),
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(16.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(
+                Icons.Filled.Campaign,
+                contentDescription = null,
+                tint = Color(0xFF9CA3AF),
+                modifier = Modifier.size(22.dp),
+            )
+            Spacer(Modifier.width(10.dp))
+            Text(
+                "現在お知らせはありません",
+                fontSize = 13.sp,
+                color = Color(0xFF9CA3AF),
+                modifier = Modifier.weight(1f),
+            )
+            Icon(
+                Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                contentDescription = "お知らせ履歴を見る",
+                tint = Color(0xFF9CA3AF),
+                modifier = Modifier.size(18.dp),
+            )
         }
     }
 }
@@ -738,9 +911,11 @@ private fun DeadlineCountRow(days: List<TaskDeadlineDaySummary>) {
 }
 
 /**
- * 「材料入荷状況」「出荷予定」カードで使う、直近3稼働日分の件数表示。
+ * 「材料入荷状況」「出荷予定」カードで使う、直近10稼働日分の件数表示。
+ * セルの大きさ・見た目は「お休み状況」（[StaffLeaveCalendarRow]）と揃えている
+ * （幅88dp、曜日・日付・件数を縦に並べる、該当日は背景をメインカラーで塗る）。
  * 日付ごとに個別選択させるのではなく、カード全体を1つのタブとしてタップすると、
- * 3日分すべての受注一覧（MultiDayOrderTables）がまとめて開閉するようにしている。
+ * 表示中の日数分すべての受注一覧（MultiDayOrderTables）がまとめて開閉するようにしている。
  */
 @Composable
 private fun DaySummaryToggle(
@@ -758,36 +933,47 @@ private fun DaySummaryToggle(
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Row(
-            modifier = Modifier.weight(1f),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            modifier = Modifier
+                .weight(1f)
+                .horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
         ) {
-            days.forEach { (date, count) ->
-                val countColor = when {
-                    expanded -> MaterialTheme.colorScheme.onPrimary
-                    highlightNonZero && count > 0 -> Color(0xFFDC2626)
-                    else -> MaterialTheme.colorScheme.onSurface
+            days.forEachIndexed { index, (date, count) ->
+                val dow = date.dayOfWeek
+                val highlighted = highlightNonZero && count > 0
+                val dateLabel = if (index == 0 || date.dayOfMonth == 1) {
+                    "${date.monthValue}/${date.dayOfMonth}"
+                } else {
+                    "${date.dayOfMonth}"
                 }
-                val labelColor = if (expanded) MaterialTheme.colorScheme.onPrimary else Color(0xFF6B7280)
+                val weekdayColor = when {
+                    highlighted -> MaterialTheme.colorScheme.onPrimary
+                    dow == java.time.DayOfWeek.SATURDAY -> Color(0xFF2563EB)
+                    dow == java.time.DayOfWeek.SUNDAY -> Color(0xFFDC2626)
+                    else -> Color(0xFF6B7280)
+                }
+                val dateColor = if (highlighted) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface
+                val countColor = if (highlighted) MaterialTheme.colorScheme.onPrimary else Color(0xFF6B7280)
                 Column(
                     modifier = Modifier
-                        .weight(1f)
+                        .width(88.dp)
                         .clip(RoundedCornerShape(12.dp))
-                        .background(if (expanded) MaterialTheme.colorScheme.primary else Color(0xFFF3F4F6))
-                        .padding(vertical = 10.dp),
+                        .background(if (highlighted) MaterialTheme.colorScheme.primary else Color(0xFFF9FAFB))
+                        .padding(vertical = 12.dp, horizontal = 4.dp),
                     horizontalAlignment = Alignment.CenterHorizontally,
                 ) {
-                    Text(DateUtil.shortLabel(date), fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = labelColor)
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text("$count", fontWeight = FontWeight.ExtraBold, fontSize = 18.sp, color = countColor)
-                        Text(" 件", fontWeight = FontWeight.ExtraBold, fontSize = 12.sp, color = countColor)
-                    }
+                    Text(WeekdayLabels[dow.value % 7], fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = weekdayColor)
+                    Spacer(Modifier.height(2.dp))
+                    Text(dateLabel, fontSize = 18.sp, fontWeight = FontWeight.ExtraBold, color = dateColor, maxLines = 1)
+                    Spacer(Modifier.height(6.dp))
+                    Text("${count}件", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = countColor, maxLines = 1)
                 }
             }
         }
         Spacer(Modifier.width(6.dp))
         Icon(
             if (expanded) Icons.Filled.KeyboardArrowUp else Icons.Filled.KeyboardArrowDown,
-            contentDescription = if (expanded) "閉じる" else "3日分を表示",
+            contentDescription = if (expanded) "閉じる" else "${days.size}日分を表示",
             tint = Color(0xFF9CA3AF),
         )
     }

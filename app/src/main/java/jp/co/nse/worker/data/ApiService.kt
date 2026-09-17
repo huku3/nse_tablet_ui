@@ -254,4 +254,16 @@ interface ApiService {
         @Query("end") end: String?,
         @Query("department") department: String?,
     ): LeavesResponse
+
+    /** ダッシュボードに表示する、現在表示条件を満たすお知らせ一覧（作成・編集はWeb管理画面で行う） */
+    @GET("announcements")
+    suspend fun announcements(): List<AnnouncementDto>
+
+    /** 過去のお知らせも含めた一覧（表示期間・曜日等の条件は問わない） */
+    @GET("announcements/history")
+    suspend fun announcementHistory(): List<AnnouncementDto>
+
+    /** お知らせ詳細（本文・添付ファイルを含む） */
+    @GET("announcements/{announcement}")
+    suspend fun announcementDetail(@Path("announcement") announcementId: Int): AnnouncementDto
 }

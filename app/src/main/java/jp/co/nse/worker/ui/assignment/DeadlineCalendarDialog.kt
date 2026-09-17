@@ -67,17 +67,26 @@ fun DeadlineCalendarDialog(
     saving: Boolean,
     serverError: String?,
     workerName: String? = null,
-    workerLeaveDates: Set<String> = emptySet(),
+    leavesByDate: Map<String, List<String>> = emptyMap(),
     onVisibleMonthChanged: (YearMonth) -> Unit,
     onConfirm: (LocalDate?) -> Unit,
     onDismiss: () -> Unit,
 ) {
     val feedback = rememberClickFeedback()
-    var visibleMonth by remember {
-        mutableStateOf(YearMonth.from(initialDate ?: maxDate ?: LocalDate.now()))
-    }
+    // 既に納期が先の月に設定されていても、カレンダーは常に当月から開く
+    // （以前は既存の納期の月が最初に開いていたため、当月に戻すのに毎回移動が必要だった）
+    var visibleMonth by remember { mutableStateOf(YearMonth.from(LocalDate.now())) }
     var selected by remember { mutableStateOf(initialDate) }
     var localError by remember { mutableStateOf<String?>(null) }
+
+    // 担当者が割り当て済みなら、その人の休暇予定日は選択をブロックする（従来通り）。
+    // 担当者未割当ての工程でも、精密部品製造課全員分の休暇予定日を参考表示だけはできるようにする
+    val workerLeaveDates = if (workerName.isNullOrBlank()) {
+        emptySet()
+    } else {
+        leavesByDate.filterValues { workerName in it }.keys
+    }
+    val otherLeaveDates = leavesByDate.keys - workerLeaveDates
 
     LaunchedEffect(visibleMonth) { onVisibleMonthChanged(visibleMonth) }
 
@@ -158,9 +167,29 @@ fun DeadlineCalendarDialog(
                         )
                         Spacer(Modifier.width(6.dp))
                         Text(
-                            "${workerName ?: "担当者"}さんの休暇予定日",
+                            "${workerName ?: "担当者"}さんの休暇予定日（選択不可）",
                             fontSize = 11.sp,
                             color = Color(0xFFDB2777),
+                            fontWeight = FontWeight.SemiBold,
+                        )
+                    }
+                    Spacer(Modifier.height(6.dp))
+                }
+
+                // ---- 他の従業員の休暇予定日の凡例（参考表示。選択はブロックしない） ----
+                if (otherLeaveDates.isNotEmpty()) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Box(
+                            modifier = Modifier
+                                .size(8.dp)
+                                .clip(CircleShape)
+                                .background(Color(0xFFEC4899)),
+                        )
+                        Spacer(Modifier.width(8.dp))
+                        Text(
+                            "他の従業員の休暇予定日（参考）",
+                            fontSize = 11.sp,
+                            color = Color(0xFF9D174D),
                             fontWeight = FontWeight.SemiBold,
                         )
                     }
@@ -208,6 +237,7 @@ fun DeadlineCalendarDialog(
                                             (maxDate != null && date > maxDate),
                                         isHoliday = !DateUtil.isWorkingDay(date, holidayDates, overrideDates),
                                         isWorkerLeave = date.toString() in workerLeaveDates,
+                                        hasOtherLeave = date.toString() in otherLeaveDates,
                                         onClick = { tryPick(date) },
                                     )
                                 }
@@ -274,6 +304,7 @@ private fun DayCell(
     isOutOfRange: Boolean,
     isHoliday: Boolean,
     isWorkerLeave: Boolean,
+    hasOtherLeave: Boolean,
     onClick: () -> Unit,
 ) {
     val textColor = when {
@@ -286,34 +317,48 @@ private fun DayCell(
         date.dayOfWeek == java.time.DayOfWeek.SATURDAY -> Color(0xFF2563EB)
         else -> Color(0xFF1F2937)
     }
-    Box(
-        modifier = Modifier
-            .size(CellSize - 4.dp)
-            .clip(CircleShape)
-            .background(
-                when {
-                    isSelected -> MaterialTheme.colorScheme.primary
-                    isWorkerLeave -> Color(0xFFFCE7F3)
-                    else -> Color.Transparent
-                },
+    Box(contentAlignment = Alignment.Center) {
+        Box(
+            modifier = Modifier
+                .size(CellSize - 4.dp)
+                .clip(CircleShape)
+                .background(
+                    when {
+                        isSelected -> MaterialTheme.colorScheme.primary
+                        isWorkerLeave -> Color(0xFFFCE7F3)
+                        else -> Color.Transparent
+                    },
+                )
+                .then(
+                    if (isCustomerDate && !isSelected) {
+                        Modifier.border(2.dp, Color(0xFFEF4444), CircleShape)
+                    } else if (isToday && !isSelected) {
+                        Modifier.border(1.dp, MaterialTheme.colorScheme.primary, CircleShape)
+                    } else {
+                        Modifier
+                    }
+                )
+                .clickable(onClick = onClick),
+            contentAlignment = Alignment.Center,
+        ) {
+            Text(
+                "${date.dayOfMonth}",
+                color = textColor,
+                fontSize = 13.sp,
+                fontWeight = if (isSelected || isCustomerDate) FontWeight.Bold else FontWeight.Normal,
             )
-            .then(
-                if (isCustomerDate && !isSelected) {
-                    Modifier.border(2.dp, Color(0xFFEF4444), CircleShape)
-                } else if (isToday && !isSelected) {
-                    Modifier.border(1.dp, MaterialTheme.colorScheme.primary, CircleShape)
-                } else {
-                    Modifier
-                }
+        }
+        // 担当者本人以外（または担当者未割当ての工程）の休暇は選択をブロックしないため、
+        // 数字の下に小さな点だけを添えて参考情報として知らせる
+        if (hasOtherLeave && !isWorkerLeave) {
+            Box(
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .padding(bottom = 2.dp)
+                    .size(4.dp)
+                    .clip(CircleShape)
+                    .background(Color(0xFFEC4899)),
             )
-            .clickable(onClick = onClick),
-        contentAlignment = Alignment.Center,
-    ) {
-        Text(
-            "${date.dayOfMonth}",
-            color = textColor,
-            fontSize = 13.sp,
-            fontWeight = if (isSelected || isCustomerDate) FontWeight.Bold else FontWeight.Normal,
-        )
+        }
     }
 }

@@ -1,6 +1,7 @@
 package jp.co.nse.worker.ui.components
 
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.FactCheck
 import androidx.compose.material.icons.filled.AccountCircle
@@ -21,7 +22,9 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.unit.dp
 import jp.co.nse.worker.appContainer
 import jp.co.nse.worker.ui.visibleHomeTabs
 import jp.co.nse.worker.util.rememberClickFeedback
@@ -70,7 +73,15 @@ fun HeaderOverflowMenu(
         IconButton(onClick = { feedback(); expanded = true }) {
             Icon(Icons.Filled.Menu, contentDescription = "メニュー", tint = MaterialTheme.colorScheme.onPrimary)
         }
-        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+        DropdownMenu(
+            expanded = expanded,
+            onDismissRequest = { expanded = false },
+            // 他のカード類（作業実績・出荷カレンダーなど）と統一感を持たせるため、
+            // アプリ内で使っている白背景・角丸16dpに揃える（M3標準のままだとメイン色が
+            // うっすら乗った灰色がかった背景になり、他の白いカードと馴染まないため）
+            shape = RoundedCornerShape(16.dp),
+            containerColor = Color.White,
+        ) {
             homeTabs.forEach { tab ->
                 DropdownMenuItem(
                     text = { Text(tab.label) },

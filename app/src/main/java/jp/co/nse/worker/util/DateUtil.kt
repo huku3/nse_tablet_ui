@@ -23,6 +23,9 @@ object DateUtil {
         return "${date.monthValue}/${date.dayOfMonth}（$wd）"
     }
 
+    /** 曜日の漢字1文字（例: "水"） */
+    fun weekdayKanji(date: LocalDate): String = weekdays[date.dayOfWeek.value - 1]
+
     /** 今日からの残日数（過去はマイナス） */
     fun daysUntil(date: LocalDate): Long =
         ChronoUnit.DAYS.between(LocalDate.now(), date)

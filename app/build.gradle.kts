@@ -122,5 +122,7 @@ dependencies {
     implementation(libs.androidx.camera.lifecycle)
     implementation(libs.androidx.camera.view)
 
+    implementation(libs.coil.compose)
+
     debugImplementation(libs.androidx.ui.tooling)
 }

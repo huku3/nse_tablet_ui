@@ -150,6 +150,17 @@ class InventoryViewModel(private val repo: ManagerRepository) : ViewModel() {
         }
     }
 
+    /**
+     * 引当候補は品目ごとにキャッシュしており、以前は一度取得すると引き当て操作をしても
+     * 更新されなかった（引き当て済みになった受注がいつまでも候補に残り続ける不具合）。
+     * その品目に対する引当・取消が成功したタイミングでキャッシュを破棄してすぐ取得し直す
+     * （パネルを開いたままでも、閉じていても、次に見るときには最新の候補になっている）
+     */
+    private fun invalidateCandidates(materialInventoryId: Int) {
+        candidatesByMaterial = candidatesByMaterial - materialInventoryId
+        loadCandidates(materialInventoryId)
+    }
+
     fun restock(materialInventoryId: Int, quantity: Int, note: String?, onDone: () -> Unit) {
         viewModelScope.launch {
             when (val result = repo.restockMaterial(materialInventoryId, quantity, note)) {
@@ -170,6 +181,7 @@ class InventoryViewModel(private val repo: ManagerRepository) : ViewModel() {
                 is ApiResult.Success -> {
                     message = "受注 No.$orderId へ引き当てました。"
                     messageIsError = false
+                    invalidateCandidates(materialInventoryId)
                     loadMaterials()
                     onDone()
                 }
@@ -179,11 +191,14 @@ class InventoryViewModel(private val repo: ManagerRepository) : ViewModel() {
     }
 
     fun deallocate(allocationId: Int) {
+        // 削除前に、どの品目の引き当てかを控えておく（削除・再取得後は辿れなくなるため）
+        val materialInventoryId = materials.firstOrNull { m -> m.allocations.any { it.id == allocationId } }?.id
         viewModelScope.launch {
             when (val result = repo.deallocateMaterial(allocationId)) {
                 is ApiResult.Success -> {
                     message = "引き当てを取り消しました。"
                     messageIsError = false
+                    materialInventoryId?.let { invalidateCandidates(it) }
                     loadMaterials()
                 }
                 is ApiResult.Failure -> { message = result.message; messageIsError = true }
@@ -257,6 +272,8 @@ fun InventoryScreen(onLogout: () -> Unit = {}, isActive: Boolean = true, onSwitc
                 colors = TopAppBarDefaults.centerAlignedTopAppBarColors(
                     containerColor = MaterialTheme.colorScheme.primary,
                     titleContentColor = MaterialTheme.colorScheme.onPrimary,
+                    navigationIconContentColor = MaterialTheme.colorScheme.onPrimary,
+                    actionIconContentColor = MaterialTheme.colorScheme.onPrimary,
                 ),
             )
         },
@@ -429,7 +446,7 @@ private fun ProcessedOrderCard(order: OrderAssignDto) {
             }
             Spacer(Modifier.height(8.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
-                Text("受注No.${order.id}", fontSize = 13.sp, color = Color(0xFF6B7280))
+                Text("No.${order.id}", fontSize = 15.sp, fontWeight = FontWeight.Bold, color = Color(0xFF6B7280))
                 // 数字を日本語のラベルと同じTextに混ぜると、端末フォントによっては桁の
                 // 大きさがばらついて見えることがあるため、数字は別のTextに分ける
                 order.quantity?.let {

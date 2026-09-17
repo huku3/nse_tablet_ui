@@ -137,6 +137,8 @@ fun DrawingScreen(
                 colors = TopAppBarDefaults.centerAlignedTopAppBarColors(
                     containerColor = MaterialTheme.colorScheme.primary,
                     titleContentColor = MaterialTheme.colorScheme.onPrimary,
+                    navigationIconContentColor = MaterialTheme.colorScheme.onPrimary,
+                    actionIconContentColor = MaterialTheme.colorScheme.onPrimary,
                 ),
             )
         },
@@ -176,11 +178,11 @@ private fun DrawingHeaderTitle(title: String, orderId: Int, poNumber: String?) {
         if (orderId > 0) {
             Text(
                 buildString {
-                    append("受注No.$orderId")
+                    append("No.$orderId")
                     poNumber?.takeIf { it.isNotBlank() }?.let { append(" ・ 発注 $it") }
                 },
-                fontSize = 12.sp,
-                fontWeight = FontWeight.SemiBold,
+                fontSize = 13.sp,
+                fontWeight = FontWeight.Bold,
                 color = MaterialTheme.colorScheme.onPrimary,
                 maxLines = 1,
             )

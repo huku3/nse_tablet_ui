@@ -170,6 +170,8 @@ fun CheckSheetScreen(
                 colors = TopAppBarDefaults.centerAlignedTopAppBarColors(
                     containerColor = MaterialTheme.colorScheme.primary,
                     titleContentColor = MaterialTheme.colorScheme.onPrimary,
+                    navigationIconContentColor = MaterialTheme.colorScheme.onPrimary,
+                    actionIconContentColor = MaterialTheme.colorScheme.onPrimary,
                 ),
             )
         },
@@ -214,13 +216,19 @@ fun CheckSheetScreen(
 
     pickerProcess?.let { proc ->
         vm.order?.let { order ->
+            // 既に工程納期が設定されていれば、その日を基準に休暇を判定する（未設定なら本日）。
+            // 先に工程納期を選んでから担当者を選ぶ順番でも、休暇の担当者を正しく警告するため
+            val leaveCheckDate = DateUtil.parse(proc.process_deadline) ?: java.time.LocalDate.now()
+            androidx.compose.runtime.LaunchedEffect(proc.id, leaveCheckDate) {
+                vm.loadPickerLeaveWorkers(leaveCheckDate)
+            }
             WorkerPickerDialog(
                 order = order.toOrderAssignDto(),
                 processName = proc.process_name,
                 current = proc.worker,
                 workers = vm.eligibleWorkers(proc.process_name),
                 saving = vm.saving,
-                onLeaveToday = vm.todayLeaveWorkerNames,
+                leaveWorkerNames = vm.pickerLeaveWorkerNames,
                 onSelect = { name ->
                     pickerProcess = null
                     vm.assign(proc.id, name)
@@ -247,12 +255,12 @@ fun CheckSheetScreen(
                 maxDate = maxDate,
                 holidayDates = vm.holidayDates,
                 overrideDates = vm.overrideDates,
-                workerLeaveDates = vm.deadlineWorkerLeaveDates,
+                leavesByDate = vm.deadlineLeavesByDate,
                 saving = vm.saving,
                 serverError = vm.deadlineError,
                 onVisibleMonthChanged = {
                     vm.ensureHolidaysLoaded(it)
-                    vm.ensureDeadlineWorkerLeaveLoaded(proc.worker, it)
+                    vm.ensureDeadlineLeaveLoaded(it)
                 },
                 onConfirm = { date -> vm.updateDeadline(proc.id, date) { deadlineProcess = null } },
                 onDismiss = {

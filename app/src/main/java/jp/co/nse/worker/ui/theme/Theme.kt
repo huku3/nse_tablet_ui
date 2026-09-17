@@ -129,6 +129,11 @@ private fun lightColorsFor(accent: Color): androidx.compose.material3.ColorSchem
         onBackground = Gray800,
         surface = Color.White,
         onSurface = Gray800,
+        // 未指定だとsurfaceTintがprimary（メイン色）になり、DropdownMenuやAlertDialogなど
+        // 階調（tonal elevation）を使うM3標準コンポーネントの背景がメイン色でうっすら
+        // 色づいて見える。アプリ内の他のカードは常にColor.Whiteで統一しているため、
+        // それらとも馴染むようsurfaceTintを白にして色づきを無くす
+        surfaceTint = Color.White,
         error = Red500,
     )
 }

@@ -8,6 +8,16 @@
     <!-- アプリ内アップデート（APKインストール）用 -->
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
 
+    <!-- Android 11以降のパッケージ可視性制限対応。これが無いと端末にPDFビューワーアプリが
+         入っていても見つからず、お知らせのPDF添付を開こうとしてもブラウザにしか
+         フォールバックできない -->
+    <queries>
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <data android:mimeType="application/pdf" />
+        </intent>
+    </queries>
+
     <application
         android:name=".NseApp"
         android:allowBackup="true"

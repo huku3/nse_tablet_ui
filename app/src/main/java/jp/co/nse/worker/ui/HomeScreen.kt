@@ -1,5 +1,7 @@
 package jp.co.nse.worker.ui
 
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -13,15 +15,19 @@ import androidx.compose.material.icons.filled.Group
 import androidx.compose.material.icons.filled.Inventory2
 import androidx.compose.material.icons.filled.LocalShipping
 import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import jp.co.nse.worker.appContainer
@@ -31,6 +37,7 @@ import jp.co.nse.worker.ui.calendar.ShippingCalendarScreen
 import jp.co.nse.worker.ui.inventory.InventoryScreen
 import jp.co.nse.worker.ui.tasklist.TaskListScreen
 import jp.co.nse.worker.util.rememberClickFeedback
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
 enum class HomeTab(val label: String, val icon: ImageVector) {
@@ -76,12 +83,33 @@ fun HomeScreen(
 ) {
     val context = androidx.compose.ui.platform.LocalContext.current
     val container = context.appContainer
-    val canAssign by container.settings.canAssignFlow.collectAsState(initial = false)
-    val canViewOrders by container.settings.canViewOrdersFlow.collectAsState(initial = false)
-    val canViewShipping by container.settings.canViewShippingFlow.collectAsState(initial = false)
 
-    val tabs = remember(canAssign, canViewOrders, canViewShipping) {
-        visibleHomeTabs(canAssign, canViewOrders, canViewShipping)
+    // canAssign等はDataStoreの実際の値が届く前、一瞬だけ初期値falseを返す。この値でtabsを
+    // 組み立てると一時的に「作業一覧タブしか無い」状態になり、その一瞬でrememberPagerStateの
+    // initialPageが確定してしまう（rememberは初回コンポーズ時の値だけを使うため、後でtabsが
+    // 増えても作り直されない）。その結果、ヘッダーメニュー等からinitialTabを指定して開いても
+    // 常に先頭の作業一覧タブに固定されてしまっていたため、実際の値が揃うまではtabsを組み立てず待つ
+    var permissionsReady by remember { mutableStateOf(false) }
+    var canAssign by remember { mutableStateOf(false) }
+    var canViewOrders by remember { mutableStateOf(false) }
+    var canViewShipping by remember { mutableStateOf(false) }
+    LaunchedEffect(Unit) {
+        canAssign = container.settings.canAssignFlow.first()
+        canViewOrders = container.settings.canViewOrdersFlow.first()
+        canViewShipping = container.settings.canViewShippingFlow.first()
+        permissionsReady = true
+    }
+    if (!permissionsReady) {
+        Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background))
+        return
+    }
+
+    val canAssignState by container.settings.canAssignFlow.collectAsState(initial = canAssign)
+    val canViewOrdersState by container.settings.canViewOrdersFlow.collectAsState(initial = canViewOrders)
+    val canViewShippingState by container.settings.canViewShippingFlow.collectAsState(initial = canViewShipping)
+
+    val tabs = remember(canAssignState, canViewOrdersState, canViewShippingState) {
+        visibleHomeTabs(canAssignState, canViewOrdersState, canViewShippingState)
     }
 
     val feedback = rememberClickFeedback()
