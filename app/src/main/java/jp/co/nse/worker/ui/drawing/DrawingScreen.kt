@@ -9,6 +9,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -16,11 +17,14 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Logout
+import androidx.compose.material.icons.automirrored.filled.RotateRight
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.Button
 import androidx.compose.material3.CenterAlignedTopAppBar
@@ -88,6 +92,8 @@ fun DrawingScreen(
     var state by remember { mutableStateOf<DrawingState>(DrawingState.Loading) }
     var reloadKey by remember { mutableStateOf(0) }
     val userName = rememberCurrentUserName()
+    // この画面を開いている間だけの一時的な向き。保存はせず、開き直すと0度に戻る
+    var rotationDegrees by remember { mutableStateOf(0) }
 
     LaunchedEffect(processId, reloadKey) {
         state = DrawingState.Loading
@@ -113,6 +119,7 @@ fun DrawingScreen(
                         title = title?.takeIf { it.isNotBlank() } ?: "図面",
                         orderId = orderId,
                         poNumber = poNumber,
+                        onRotate = { feedback(); rotationDegrees = (rotationDegrees + 90) % 360 },
                     )
                 },
                 navigationIcon = {
@@ -164,34 +171,73 @@ fun DrawingScreen(
                     Button(onClick = { feedback(); reloadKey++ }) { Text("再読み込み") }
                 }
 
-                is DrawingState.Loaded -> PdfPager(s.pages)
+                is DrawingState.Loaded -> RotatablePdfPager(s.pages, rotationDegrees)
             }
         }
     }
 }
 
-/** 図面画面のヘッダータイトル。品名の下に受注No・発注番号、さらにその下に本日の日付を表示する */
+/**
+ * 図面画面のヘッダータイトル。品名の下に受注No・発注番号、さらにその下に本日の日付を表示する。
+ * 向きを変えるボタンはアクション欄に置くと他のアイコンに埋もれて気付かれにくいため、
+ * この受注情報のすぐ横に置いて分かりやすくしている。
+ */
 @Composable
-private fun DrawingHeaderTitle(title: String, orderId: Int, poNumber: String?) {
+private fun DrawingHeaderTitle(title: String, orderId: Int, poNumber: String?, onRotate: () -> Unit) {
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
         Text(title, fontWeight = FontWeight.Bold, maxLines = 1)
-        if (orderId > 0) {
-            Text(
-                buildString {
-                    append("No.$orderId")
-                    poNumber?.takeIf { it.isNotBlank() }?.let { append(" ・ 発注 $it") }
-                },
-                fontSize = 13.sp,
-                fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.onPrimary,
-                maxLines = 1,
-            )
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            if (orderId > 0) {
+                Text(
+                    buildString {
+                        append("No.$orderId")
+                        poNumber?.takeIf { it.isNotBlank() }?.let { append(" ・ 発注 $it") }
+                    },
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onPrimary,
+                    maxLines = 1,
+                )
+                Spacer(Modifier.width(6.dp))
+            }
+            IconButton(onClick = onRotate, modifier = Modifier.size(40.dp)) {
+                Icon(
+                    Icons.AutoMirrored.Filled.RotateRight,
+                    contentDescription = "図面の向きを変える",
+                    tint = MaterialTheme.colorScheme.onPrimary,
+                    modifier = Modifier.size(30.dp),
+                )
+            }
         }
         Text(
             DateUtil.shortLabel(LocalDate.now()),
             fontSize = 11.sp,
             color = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.85f),
         )
+    }
+}
+
+/**
+ * ヘッダーの回転ボタンで図面の向きを変えられるようにするラッパー。
+ * 90度・270度は縦横が入れ替わるため、単に画像を回すだけだと画面の枠からはみ出す。
+ * 表示領域の縦横を入れ替えたBoxを用意してから回転させることで、
+ * 回転後にちょうど元の画面いっぱいに収まるようにしている。
+ */
+@Composable
+private fun RotatablePdfPager(pages: List<Bitmap>, rotationDegrees: Int) {
+    BoxWithConstraints(Modifier.fillMaxSize()) {
+        val isSideways = rotationDegrees == 90 || rotationDegrees == 270
+        val boxWidth = if (isSideways) maxHeight else maxWidth
+        val boxHeight = if (isSideways) maxWidth else maxHeight
+        Box(
+            modifier = Modifier
+                .align(Alignment.Center)
+                .width(boxWidth)
+                .height(boxHeight)
+                .graphicsLayer { rotationZ = rotationDegrees.toFloat() },
+        ) {
+            PdfPager(pages)
+        }
     }
 }
 

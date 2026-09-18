@@ -21,12 +21,16 @@ import jp.co.nse.worker.ui.checksheet.CheckSheetScreen
 import jp.co.nse.worker.ui.dashboard.DashboardScreen
 import jp.co.nse.worker.ui.dashboard.StaffLeaveCalendarScreen
 import jp.co.nse.worker.ui.drawing.DrawingScreen
+import jp.co.nse.worker.ui.inquiry.OrderInquiryScreen
+import jp.co.nse.worker.ui.inventory.InventoryScreen
 import jp.co.nse.worker.ui.login.LoginScreen
 import jp.co.nse.worker.ui.mypage.MyPageScreen
 import jp.co.nse.worker.ui.processassignment.ProcessAssignmentScreen
 import jp.co.nse.worker.ui.report.ReportDetailScreen
 import jp.co.nse.worker.ui.report.ReportListScreen
 import jp.co.nse.worker.ui.report.ReportScreen
+import jp.co.nse.worker.ui.scandata.ScanDataScreen
+import jp.co.nse.worker.ui.settings.SettingsScreen
 import jp.co.nse.worker.ui.splash.SplashScreen
 import jp.co.nse.worker.ui.taskdetail.TaskDetailScreen
 import kotlinx.coroutines.launch
@@ -35,11 +39,15 @@ object Routes {
     const val SPLASH = "splash"
     const val DASHBOARD = "dashboard"
     const val MYPAGE = "mypage"
+    const val SETTINGS = "settings"
     const val LOGIN = "login"
     const val HOME = "home?tab={tab}"
     const val DETAIL = "detail/{processId}"
     const val ASSIGN_DETAIL = "assign/{orderId}"
     const val PROCESS_ASSIGNMENTS = "process-assignments"
+    const val INVENTORY = "inventory"
+    const val ORDER_INQUIRY = "order-inquiry"
+    const val SCAN_DATA = "scan-data"
     const val REPORT = "report"
     const val REPORT_LIST = "report-list"
     const val REPORT_DETAIL = "report-detail/{reportId}"
@@ -96,10 +104,18 @@ fun AppNav() {
     container.openTask = { processId -> navController.navigateSafely(Routes.detail(processId)) }
     // どの画面のヘッダーからでもマイページへ遷移できるようにする
     container.openMyPage = { navController.navigateSafely(Routes.MYPAGE) }
+    // どの画面のヘッダーからでも設定（メインカラー・文字の見た目）へ遷移できるようにする
+    container.openSettings = { navController.navigateSafely(Routes.SETTINGS) }
     // どの画面のヘッダーからでもダッシュボードへ遷移できるようにする
     container.openDashboard = { navController.navigateSafely(Routes.DASHBOARD) }
     // 権限があるアカウントは、どの画面のヘッダーからでも担当工程マスタへ遷移できるようにする
     container.openProcessAssignments = { navController.navigateSafely(Routes.PROCESS_ASSIGNMENTS) }
+    // 権限があるアカウントは、どの画面のヘッダーからでも在庫画面へ遷移できるようにする
+    container.openInventory = { navController.navigateSafely(Routes.INVENTORY) }
+    // 権限があるアカウントは、どの画面のヘッダーからでも受注照会画面へ遷移できるようにする
+    container.openOrderInquiry = { navController.navigateSafely(Routes.ORDER_INQUIRY) }
+    // 権限があるアカウントは、どの画面のヘッダーからでもスキャンデータ画面へ遷移できるようにする
+    container.openScanData = { navController.navigateSafely(Routes.SCAN_DATA) }
     // どの画面のヘッダーからでも不具合・要望の報告画面へ遷移できるようにする
     container.openReport = { navController.navigateSafely(Routes.REPORT) }
     // 権限があるアカウントは、どの画面のヘッダーからでも報告一覧へ遷移できるようにする
@@ -178,6 +194,13 @@ fun AppNav() {
             MyPageScreen(
                 onBack = { navController.popBackStackSafely() },
                 onOpenTask = { processId -> navController.navigateSafely(Routes.detail(processId)) },
+                onLogout = logout,
+            )
+        }
+
+        composable(Routes.SETTINGS) {
+            SettingsScreen(
+                onBack = { navController.popBackStackSafely() },
                 onLogout = logout,
             )
         }
@@ -300,9 +323,32 @@ fun AppNav() {
             )
         }
 
+        composable(Routes.INVENTORY) {
+            InventoryScreen(
+                onBack = { navController.popBackStackSafely() },
+                onLogout = logout,
+            )
+        }
+
+        composable(Routes.ORDER_INQUIRY) {
+            OrderInquiryScreen(
+                onBack = { navController.popBackStackSafely() },
+                onOpenCheckSheet = { orderId -> navController.navigateSafely(Routes.checksheet(orderId)) },
+                onLogout = logout,
+            )
+        }
+
+        composable(Routes.SCAN_DATA) {
+            ScanDataScreen(
+                onBack = { navController.popBackStackSafely() },
+                onLogout = logout,
+            )
+        }
+
         composable(Routes.REPORT) {
             ReportScreen(
                 onBack = { navController.popBackStackSafely() },
+                onOpenDetail = { reportId -> navController.navigateSafely(Routes.reportDetail(reportId)) },
                 onLogout = logout,
             )
         }

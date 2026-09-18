@@ -9,6 +9,7 @@ import jp.co.nse.worker.data.ApiResult
 import jp.co.nse.worker.data.CheckSheetOrderDto
 import jp.co.nse.worker.data.ManagerRepository
 import jp.co.nse.worker.data.ProcessAssignmentsResponse
+import jp.co.nse.worker.data.ScanDataFileDto
 import jp.co.nse.worker.data.WorkerDto
 import jp.co.nse.worker.data.WorkerRepository
 import jp.co.nse.worker.ui.dashboard.StaffLeaveDepartment
@@ -61,6 +62,16 @@ class CheckSheetViewModel(
     private val loadedFiscalYears = mutableSetOf<Int>()
 
     var markingArrived by mutableStateOf(false)
+        private set
+
+    // 検査用図面の取り込み（スキャンデータから選ぶ）
+    var scanDataFiles by mutableStateOf<List<ScanDataFileDto>>(emptyList())
+        private set
+    var scanDataLoading by mutableStateOf(false)
+        private set
+    var scanDataError by mutableStateOf<String?>(null)
+        private set
+    var attachingInspection by mutableStateOf(false)
         private set
 
     fun load() {
@@ -209,6 +220,38 @@ class CheckSheetViewModel(
         when (val result = repo.checksheet(orderId)) {
             is ApiResult.Success -> order = result.data
             is ApiResult.Failure -> message = result.message
+        }
+    }
+
+    /** 検査用図面の取り込みダイアログを開いたときに、選べるスキャンデータの一覧を取得する */
+    fun loadScanDataFiles() {
+        viewModelScope.launch {
+            scanDataLoading = true
+            scanDataError = null
+            when (val result = repo.scanDataFiles()) {
+                is ApiResult.Success -> scanDataFiles = result.data
+                is ApiResult.Failure -> scanDataError = result.message
+            }
+            scanDataLoading = false
+        }
+    }
+
+    /** 選んだスキャンデータをこの受注の検査記録用図面として取り込む */
+    fun attachInspectionFromScanData(filename: String, onDone: (success: Boolean) -> Unit) {
+        viewModelScope.launch {
+            attachingInspection = true
+            when (val result = repo.attachScanDataInspection(filename, orderId)) {
+                is ApiResult.Success -> {
+                    message = result.data
+                    reloadOrder()
+                    onDone(true)
+                }
+                is ApiResult.Failure -> {
+                    message = result.message
+                    onDone(false)
+                }
+            }
+            attachingInspection = false
         }
     }
 }

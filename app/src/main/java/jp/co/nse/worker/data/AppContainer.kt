@@ -60,14 +60,26 @@ class AppContainer(context: Context) {
      */
     var openTask: ((processId: Int) -> Unit)? = null
 
-    /** マイページ（メイン色の変更等）を開くコールバック。AppNavが起動時に設定する */
+    /** マイページ（作業実績）を開くコールバック。AppNavが起動時に設定する */
     var openMyPage: (() -> Unit)? = null
+
+    /** 設定（メインカラー・文字の見た目）を開くコールバック。AppNavが起動時に設定する */
+    var openSettings: (() -> Unit)? = null
 
     /** ダッシュボード画面を開くコールバック。AppNavが起動時に設定する */
     var openDashboard: (() -> Unit)? = null
 
     /** 担当工程マスタ画面を開くコールバック。AppNavが起動時に設定する */
     var openProcessAssignments: (() -> Unit)? = null
+
+    /** 在庫画面を開くコールバック。AppNavが起動時に設定する */
+    var openInventory: (() -> Unit)? = null
+
+    /** 受注照会画面を開くコールバック。AppNavが起動時に設定する */
+    var openOrderInquiry: (() -> Unit)? = null
+
+    /** スキャンデータ画面を開くコールバック。AppNavが起動時に設定する */
+    var openScanData: (() -> Unit)? = null
 
     /** 不具合・要望の報告画面を開くコールバック。AppNavが起動時に設定する */
     var openReport: (() -> Unit)? = null
@@ -77,7 +89,7 @@ class AppContainer(context: Context) {
 
     /**
      * ヘッダーのロゴタップで作業一覧（ホーム）まで戻るコールバック。AppNavが起動時に設定する。
-     * ホーム画面内のタブ（作業一覧・割り当て・受注一覧・在庫・出荷カレンダー）自体は
+     * ホーム画面内のタブ（作業一覧・割り当て・受注一覧・出荷カレンダー）自体は
      * このコールバックを使わず、タブ切替（pagerState）で直接作業一覧タブへ移動する。
      */
     var openHome: (() -> Unit)? = null

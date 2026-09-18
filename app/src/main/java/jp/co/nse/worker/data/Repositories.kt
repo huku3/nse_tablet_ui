@@ -40,11 +40,20 @@ fun UserDto.canManageProcessAssignments(): Boolean = hasFeature("worker_process_
 /** 不具合・要望の報告一覧・対応管理を見る権限を持つか */
 fun UserDto.canManageReports(): Boolean = hasFeature("reports.manage")
 
+/** スキャンデータ（コピー機で読み取ったPDF）の閲覧権限を持つか */
+fun UserDto.canViewScanData(): Boolean = hasFeature("scan_data.view")
+
 /** Retrofit例外を日本語メッセージへ変換する */
 internal fun Throwable.toUserMessage(): String = when (this) {
     is java.net.UnknownHostException -> "サーバーに接続できません。接続先URLとネットワークを確認してください。"
     is java.net.SocketTimeoutException -> "通信がタイムアウトしました。"
-    is retrofit2.HttpException -> "サーバーエラー（${code()}）が発生しました。"
+    // 404は「データが見つからない」ことが明確なので、既に削除された可能性を案内する
+    // （通知に残っていた削除済みの工程・受注を開こうとした場合など）
+    is retrofit2.HttpException -> if (code() == 404) {
+        "データが見つかりませんでした。既に削除されている可能性があります。"
+    } else {
+        "サーバーエラー（${code()}）が発生しました。"
+    }
     else -> message ?: "通信エラーが発生しました。"
 }
 
@@ -74,7 +83,7 @@ class AuthRepository(
 ) {
     suspend fun login(email: String, password: String): ApiResult<UserDto> = try {
         val res = apiProvider().login(LoginRequest(email, password))
-        settings.saveToken(res.token, res.user.name, res.user.role, res.user.canAssign(), res.user.canViewOrders(), res.user.canViewShippingCalendar(), res.user.canManageProcessAssignments(), res.user.canManageReports(), res.user.color)
+        settings.saveToken(res.token, res.user.name, res.user.role, res.user.canAssign(), res.user.canViewOrders(), res.user.canViewShippingCalendar(), res.user.canManageProcessAssignments(), res.user.canManageReports(), res.user.canViewScanData(), res.user.color, res.user.font_scale, res.user.font_family, res.user.avatar_key)
         ApiResult.Success(res.user)
     } catch (e: retrofit2.HttpException) {
         val msg = e.response()?.errorBody()?.string()?.let {
@@ -95,7 +104,7 @@ class AuthRepository(
     /** アカウントID＋社員番号でログイン */
     suspend fun loginById(userId: Int, employeeNumber: String): ApiResult<UserDto> = try {
         val res = apiProvider().loginById(LoginByIdRequest(userId, employeeNumber))
-        settings.saveToken(res.token, res.user.name, res.user.role, res.user.canAssign(), res.user.canViewOrders(), res.user.canViewShippingCalendar(), res.user.canManageProcessAssignments(), res.user.canManageReports(), res.user.color)
+        settings.saveToken(res.token, res.user.name, res.user.role, res.user.canAssign(), res.user.canViewOrders(), res.user.canViewShippingCalendar(), res.user.canManageProcessAssignments(), res.user.canManageReports(), res.user.canViewScanData(), res.user.color, res.user.font_scale, res.user.font_family, res.user.avatar_key)
         ApiResult.Success(res.user)
     } catch (e: retrofit2.HttpException) {
         val msg = e.response()?.errorBody()?.string()?.let {
@@ -130,6 +139,57 @@ class AuthRepository(
                 runCatching { errorJson.decodeFromString<UpdateColorResponse>(it).message }.getOrNull()
             } ?: response.body()?.message
             ApiResult.Failure(message ?: "メイン色の変更に失敗しました（${response.code()}）。")
+        }
+    } catch (e: Throwable) {
+        ApiResult.Failure(e.toUserMessage())
+    }
+
+    /** マイページで文字の大きさを変更する。成功したら再ログインなしで即座に画面へ反映する */
+    suspend fun updateMyFontScale(scale: Float): ApiResult<Unit> = try {
+        val response = apiProvider().updateFontScale(UpdateFontScaleRequest(scale))
+        if (response.isSuccessful && response.body()?.ok != false) {
+            settings.saveFontScale(scale)
+            ApiResult.Success(Unit)
+        } else {
+            val raw = response.errorBody()?.string()
+            val message = raw?.let {
+                runCatching { errorJson.decodeFromString<UpdateFontScaleResponse>(it).message }.getOrNull()
+            } ?: response.body()?.message
+            ApiResult.Failure(message ?: "文字の大きさの変更に失敗しました（${response.code()}）。")
+        }
+    } catch (e: Throwable) {
+        ApiResult.Failure(e.toUserMessage())
+    }
+
+    /** マイページで書体を変更する。成功したら再ログインなしで即座に画面へ反映する */
+    suspend fun updateMyFontFamily(key: String): ApiResult<Unit> = try {
+        val response = apiProvider().updateFontFamily(UpdateFontFamilyRequest(key))
+        if (response.isSuccessful && response.body()?.ok != false) {
+            settings.saveFontFamily(key)
+            ApiResult.Success(Unit)
+        } else {
+            val raw = response.errorBody()?.string()
+            val message = raw?.let {
+                runCatching { errorJson.decodeFromString<UpdateFontFamilyResponse>(it).message }.getOrNull()
+            } ?: response.body()?.message
+            ApiResult.Failure(message ?: "書体の変更に失敗しました（${response.code()}）。")
+        }
+    } catch (e: Throwable) {
+        ApiResult.Failure(e.toUserMessage())
+    }
+
+    /** マイページでアイコン（プリセットの動物イラスト）を変更する。成功したら再ログインなしで即座に画面へ反映する */
+    suspend fun updateMyAvatar(key: String): ApiResult<Unit> = try {
+        val response = apiProvider().updateAvatar(UpdateAvatarRequest(key))
+        if (response.isSuccessful && response.body()?.ok != false) {
+            settings.saveAvatarKey(key)
+            ApiResult.Success(Unit)
+        } else {
+            val raw = response.errorBody()?.string()
+            val message = raw?.let {
+                runCatching { errorJson.decodeFromString<UpdateAvatarResponse>(it).message }.getOrNull()
+            } ?: response.body()?.message
+            ApiResult.Failure(message ?: "アイコンの変更に失敗しました（${response.code()}）。")
         }
     } catch (e: Throwable) {
         ApiResult.Failure(e.toUserMessage())
@@ -283,6 +343,74 @@ class WorkerRepository(
             res.code() == 404 -> ApiResult.Failure("この作業には図面が登録されていません。")
             else -> ApiResult.Failure("図面の取得に失敗しました（${res.code()}）。")
         }
+    } catch (e: Throwable) {
+        ApiResult.Failure(e.toUserMessage())
+    }
+
+    /** スキャンデータ（コピー機で読み取ったPDF）の一覧 */
+    suspend fun scanDataFiles(): ApiResult<List<ScanDataFileDto>> = try {
+        ApiResult.Success(apiProvider().scanDataFiles().files)
+    } catch (e: Throwable) {
+        ApiResult.Failure(e.toUserMessage())
+    }
+
+    /** スキャンデータPDFを [destFile] にダウンロードする。PdfRenderer は seek 可能なファイルを要求するためファイルに保存する */
+    suspend fun downloadScanData(filename: String, destFile: File): ApiResult<File> = try {
+        val res = apiProvider().scanDataPreview(filename)
+        when {
+            res.isSuccessful -> {
+                val body = res.body()
+                if (body == null) {
+                    ApiResult.Failure("ファイルの取得に失敗しました。")
+                } else {
+                    withContext(Dispatchers.IO) {
+                        body.byteStream().use { input ->
+                            destFile.outputStream().use { output -> input.copyTo(output) }
+                        }
+                    }
+                    ApiResult.Success(destFile)
+                }
+            }
+            res.code() == 404 -> ApiResult.Failure("ファイルが見つかりません。")
+            else -> ApiResult.Failure("ファイルの取得に失敗しました（${res.code()}）。")
+        }
+    } catch (e: Throwable) {
+        ApiResult.Failure(e.toUserMessage())
+    }
+
+    /** スキャンデータPDFを90度回転し、保存先へ直接上書き保存する */
+    suspend fun rotateScanData(filename: String): ApiResult<Unit> = try {
+        handleAction(apiProvider().rotateScanData(filename))
+    } catch (e: Throwable) {
+        ApiResult.Failure(e.toUserMessage())
+    }
+
+    /** スキャンデータPDFを削除する */
+    suspend fun deleteScanData(filename: String): ApiResult<Unit> = try {
+        handleAction(apiProvider().deleteScanData(filename))
+    } catch (e: Throwable) {
+        ApiResult.Failure(e.toUserMessage())
+    }
+
+    /** スキャンデータPDFを指定の受注の検査記録用図面として取り込む。成功メッセージをそのまま返す */
+    suspend fun attachScanDataInspection(filename: String, orderId: Int): ApiResult<String> = try {
+        val res = apiProvider().attachScanDataInspection(filename, AttachInspectionRequest(orderId))
+        if (res.isSuccessful && res.body()?.ok != false) {
+            ApiResult.Success(res.body()?.message ?: "検査記録用図面として取り込みました。")
+        } else {
+            val raw = res.errorBody()?.string()
+            val message = raw?.let {
+                runCatching { errorJson.decodeFromString<ActionResponse>(it).message }.getOrNull()
+            } ?: res.body()?.message
+            ApiResult.Failure(message ?: "取り込みに失敗しました（${res.code()}）。")
+        }
+    } catch (e: Throwable) {
+        ApiResult.Failure(e.toUserMessage())
+    }
+
+    /** 検査記録用図面の取り込み候補（最終検査完了・図面未取り込みの受注）一覧 */
+    suspend fun inspectionDrawingCandidates(): ApiResult<List<InspectionCandidateOrderDto>> = try {
+        ApiResult.Success(apiProvider().inspectionDrawingCandidates().orders)
     } catch (e: Throwable) {
         ApiResult.Failure(e.toUserMessage())
     }
@@ -511,6 +639,16 @@ class ManagerRepository(
         ApiResult.Failure(e.toUserMessage())
     }
 
+    /**
+     * 受注詳細画面の「編集」でまとめて変更した複数工程の担当者・工程納期を一括保存する。
+     * 同じ担当者へ複数工程を新しく割り当てた場合も、サーバー側で通知を1通にまとめる。
+     */
+    suspend fun batchAssignProcesses(orderId: Int, updates: List<BatchAssignItem>): ApiResult<Unit> = try {
+        handleAction(apiProvider().batchAssignProcesses(orderId, BatchAssignRequest(updates)))
+    } catch (e: Throwable) {
+        ApiResult.Failure(e.toUserMessage())
+    }
+
     /** 指定年度（4月始まり）の休日・例外稼働日の日付集合を取得 */
     suspend fun holidayCalendar(fiscalYear: Int): ApiResult<HolidaySet> = try {
         val res = apiProvider().holidays(fiscalYear)
@@ -552,6 +690,13 @@ class ManagerRepository(
         } else {
             ApiResult.Failure(res.message ?: "該当する受注が見つかりません。")
         }
+    } catch (e: Throwable) {
+        ApiResult.Failure(e.toUserMessage())
+    }
+
+    /** 受注照会：客先名・品番・発注番号・客先注文番号のいずれかで受注を検索する（最大30件） */
+    suspend fun lookupOrders(q: String): ApiResult<List<OrderLookupResultDto>> = try {
+        ApiResult.Success(apiProvider().orderLookup(q).orders)
     } catch (e: Throwable) {
         ApiResult.Failure(e.toUserMessage())
     }
@@ -600,6 +745,13 @@ class ManagerRepository(
     /** 報告の対応ステータスを変更する */
     suspend fun updateReportStatus(reportId: Int, status: ReportStatus): ApiResult<Unit> = try {
         handleAction(apiProvider().updateReportStatus(reportId, UpdateReportStatusRequest(status.apiValue)))
+    } catch (e: Throwable) {
+        ApiResult.Failure(e.toUserMessage())
+    }
+
+    /** 報告を削除する */
+    suspend fun deleteReport(reportId: Int): ApiResult<Unit> = try {
+        handleAction(apiProvider().deleteReport(reportId))
     } catch (e: Throwable) {
         ApiResult.Failure(e.toUserMessage())
     }

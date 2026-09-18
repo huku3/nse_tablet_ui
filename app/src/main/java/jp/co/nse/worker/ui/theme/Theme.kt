@@ -160,33 +160,77 @@ private val NumeralFont = FontFamily(Font(R.font.noto_sans))
 private fun TextStyle.withStableNumerals() =
     merge(TextStyle(fontFeatureSettings = NumeralFriendlyFeatures, fontFamily = NumeralFont))
 
-private val AppTypography = Typography().let { base ->
-    Typography(
-        displayLarge = base.displayLarge.withStableNumerals(),
-        displayMedium = base.displayMedium.withStableNumerals(),
-        displaySmall = base.displaySmall.withStableNumerals(),
-        headlineLarge = base.headlineLarge.withStableNumerals(),
-        headlineMedium = base.headlineMedium.withStableNumerals(),
-        headlineSmall = base.headlineSmall.withStableNumerals(),
-        titleLarge = base.titleLarge.withStableNumerals(),
-        titleMedium = base.titleMedium.withStableNumerals(),
-        titleSmall = base.titleSmall.withStableNumerals(),
-        bodyLarge = base.bodyLarge.withStableNumerals(),
-        bodyMedium = base.bodyMedium.withStableNumerals(),
-        bodySmall = base.bodySmall.withStableNumerals(),
-        labelLarge = base.labelLarge.withStableNumerals(),
-        labelMedium = base.labelMedium.withStableNumerals(),
-        labelSmall = base.labelSmall.withStableNumerals(),
+/**
+ * マイページで選べる書体。[fontFamily]がnullの場合は端末標準フォント（これまで通りの見た目）。
+ * [category]は選択画面での見出し分け用（"標準"／"ゴシック体"／"明朝体"／"丸ゴシック体"）
+ */
+data class FontFamilyPreset(val key: String, val label: String, val category: String, val fontFamily: FontFamily?)
+
+/**
+ * 日本語Googleフォントの中でも定番・人気の高い書体を分類（ゴシック体／明朝体／丸ゴシック体）
+ * ごとにいくつか用意する。太字（FontWeight.Bold）はいずれも標準ウェイトのみ同梱し、
+ * Compose標準のフォント合成（疑似ボールド）で表示する
+ */
+val AppFontFamilies = listOf(
+    FontFamilyPreset("system", "標準", "標準", null),
+    // ゴシック体
+    FontFamilyPreset("noto_sans_jp", "Noto Sans JP", "ゴシック体", FontFamily(Font(R.font.noto_sans_jp))),
+    FontFamilyPreset("zen_kaku_gothic_new", "Zen角ゴシック New", "ゴシック体", FontFamily(Font(R.font.zen_kaku_gothic_new))),
+    FontFamilyPreset("mplus_1p", "M PLUS 1p", "ゴシック体", FontFamily(Font(R.font.mplus_1p))),
+    // 明朝体
+    FontFamilyPreset("noto_serif_jp", "Noto Serif JP", "明朝体", FontFamily(Font(R.font.noto_serif_jp))),
+    FontFamilyPreset("shippori_mincho", "しっぽり明朝", "明朝体", FontFamily(Font(R.font.shippori_mincho))),
+    FontFamilyPreset("zen_old_mincho", "Zen Old明朝", "明朝体", FontFamily(Font(R.font.zen_old_mincho))),
+    // 丸ゴシック体
+    FontFamilyPreset("mplus_rounded_1c", "M PLUS Rounded 1c", "丸ゴシック体", FontFamily(Font(R.font.mplus_rounded_1c))),
+    FontFamilyPreset("kosugi_maru", "小杉丸", "丸ゴシック体", FontFamily(Font(R.font.kosugi_maru))),
+    FontFamilyPreset("zen_maru_gothic", "Zen丸ゴシック", "丸ゴシック体", FontFamily(Font(R.font.zen_maru_gothic))),
+)
+
+fun fontFamilyForKey(key: String): FontFamily? = AppFontFamilies.firstOrNull { it.key == key }?.fontFamily
+
+/**
+ * 選んだ書体をTextStyleに反映する。端末標準（[selectedFontFamily]がnull）の場合のみ、
+ * これまで通り数字だけ見た目を安定させる[NumeralFont]を明示指定する。カスタム書体を
+ * 選んだ場合はその書体自体の数字がそのまま使われる（Noto系はもともと等幅ライニング数字）
+ */
+private fun TextStyle.withFontFamily(selectedFontFamily: FontFamily?) = if (selectedFontFamily != null) {
+    merge(TextStyle(fontFamily = selectedFontFamily))
+} else {
+    withStableNumerals()
+}
+
+private fun buildTypography(selectedFontFamily: FontFamily?): Typography {
+    val base = Typography()
+    return Typography(
+        displayLarge = base.displayLarge.withFontFamily(selectedFontFamily),
+        displayMedium = base.displayMedium.withFontFamily(selectedFontFamily),
+        displaySmall = base.displaySmall.withFontFamily(selectedFontFamily),
+        headlineLarge = base.headlineLarge.withFontFamily(selectedFontFamily),
+        headlineMedium = base.headlineMedium.withFontFamily(selectedFontFamily),
+        headlineSmall = base.headlineSmall.withFontFamily(selectedFontFamily),
+        titleLarge = base.titleLarge.withFontFamily(selectedFontFamily),
+        titleMedium = base.titleMedium.withFontFamily(selectedFontFamily),
+        titleSmall = base.titleSmall.withFontFamily(selectedFontFamily),
+        bodyLarge = base.bodyLarge.withFontFamily(selectedFontFamily),
+        bodyMedium = base.bodyMedium.withFontFamily(selectedFontFamily),
+        bodySmall = base.bodySmall.withFontFamily(selectedFontFamily),
+        labelLarge = base.labelLarge.withFontFamily(selectedFontFamily),
+        labelMedium = base.labelMedium.withFontFamily(selectedFontFamily),
+        labelSmall = base.labelSmall.withFontFamily(selectedFontFamily),
     )
 }
 
-/** [accentColor] は現在ログイン中のアカウントのマイページで選んだメイン色（未選択時は出荷カレンダーと同じブルー） */
+/**
+ * [accentColor] は現在ログイン中のアカウントのマイページで選んだメイン色（未選択時は出荷カレンダーと同じブルー）。
+ * [fontFamily] はこの端末で選んだ書体（未選択時はnullで端末標準フォント）
+ */
 @Composable
-fun NseWorkerTheme(accentColor: Color = Indigo700, content: @Composable () -> Unit) {
+fun NseWorkerTheme(accentColor: Color = Indigo700, fontFamily: FontFamily? = null, content: @Composable () -> Unit) {
     // 工場利用のため常にライトテーマ
     MaterialTheme(
         colorScheme = lightColorsFor(accentColor),
-        typography = AppTypography,
+        typography = androidx.compose.runtime.remember(fontFamily) { buildTypography(fontFamily) },
         content = content,
     )
 }

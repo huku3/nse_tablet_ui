@@ -48,6 +48,9 @@ import java.time.YearMonth
 private val WeekdayLabels = listOf("日", "月", "火", "水", "木", "金", "土")
 private val CellSize = 40.dp
 
+/** 材料入荷予定日の凡例・カレンダーマーカーの色（客先納期の赤、休暇のピンクと被らない青竹色） */
+private val MaterialArrivalColor = Color(0xFF0D9488)
+
 /**
  * 工程納期をカレンダーで選ぶダイアログ。
  * 客先納期（[maxDate]）を赤で強調し、前工程の工程納期（[minDate]）より前・客先納期より後・
@@ -73,6 +76,7 @@ fun DeadlineCalendarDialog(
     onDismiss: () -> Unit,
 ) {
     val feedback = rememberClickFeedback()
+    val materialArrivedDate = DateUtil.parse(order.material_arrived_at)
     // 既に納期が先の月に設定されていても、カレンダーは常に当月から開く
     // （以前は既存の納期の月が最初に開いていたため、当月に戻すのに毎回移動が必要だった）
     var visibleMonth by remember { mutableStateOf(YearMonth.from(LocalDate.now())) }
@@ -156,6 +160,27 @@ fun DeadlineCalendarDialog(
                     Spacer(Modifier.height(6.dp))
                 }
 
+                // ---- 材料入荷予定日の凡例（未定の場合もその旨を表示する） ----
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Box(
+                        modifier = Modifier
+                            .size(10.dp)
+                            .border(2.dp, MaterialArrivalColor, CircleShape),
+                    )
+                    Spacer(Modifier.width(6.dp))
+                    Text(
+                        if (materialArrivedDate != null) {
+                            "材料入荷予定（${DateUtil.shortLabel(materialArrivedDate)}）"
+                        } else {
+                            "材料入荷予定：未定"
+                        },
+                        fontSize = 11.sp,
+                        color = MaterialArrivalColor,
+                        fontWeight = FontWeight.SemiBold,
+                    )
+                }
+                Spacer(Modifier.height(6.dp))
+
                 // ---- 担当者の休暇予定日の凡例 ----
                 if (workerLeaveDates.isNotEmpty()) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
@@ -233,6 +258,7 @@ fun DeadlineCalendarDialog(
                                         isSelected = date == selected,
                                         isToday = date == LocalDate.now(),
                                         isCustomerDate = date == maxDate,
+                                        isMaterialArrivalDate = date == materialArrivedDate,
                                         isOutOfRange = (minDate != null && date < minDate) ||
                                             (maxDate != null && date > maxDate),
                                         isHoliday = !DateUtil.isWorkingDay(date, holidayDates, overrideDates),
@@ -301,6 +327,7 @@ private fun DayCell(
     isSelected: Boolean,
     isToday: Boolean,
     isCustomerDate: Boolean,
+    isMaterialArrivalDate: Boolean,
     isOutOfRange: Boolean,
     isHoliday: Boolean,
     isWorkerLeave: Boolean,
@@ -312,6 +339,7 @@ private fun DayCell(
         isOutOfRange -> Color(0xFFD1D5DB)
         isCustomerDate -> Color(0xFFDC2626)
         isWorkerLeave -> Color(0xFFDB2777)
+        isMaterialArrivalDate -> MaterialArrivalColor
         isHoliday -> Color(0xFFF59E0B)
         date.dayOfWeek == java.time.DayOfWeek.SUNDAY -> Color(0xFFDC2626)
         date.dayOfWeek == java.time.DayOfWeek.SATURDAY -> Color(0xFF2563EB)
@@ -332,6 +360,8 @@ private fun DayCell(
                 .then(
                     if (isCustomerDate && !isSelected) {
                         Modifier.border(2.dp, Color(0xFFEF4444), CircleShape)
+                    } else if (isMaterialArrivalDate && !isSelected) {
+                        Modifier.border(2.dp, MaterialArrivalColor, CircleShape)
                     } else if (isToday && !isSelected) {
                         Modifier.border(1.dp, MaterialTheme.colorScheme.primary, CircleShape)
                     } else {
@@ -345,7 +375,7 @@ private fun DayCell(
                 "${date.dayOfMonth}",
                 color = textColor,
                 fontSize = 13.sp,
-                fontWeight = if (isSelected || isCustomerDate) FontWeight.Bold else FontWeight.Normal,
+                fontWeight = if (isSelected || isCustomerDate || isMaterialArrivalDate) FontWeight.Bold else FontWeight.Normal,
             )
         }
         // 担当者本人以外（または担当者未割当ての工程）の休暇は選択をブロックしないため、

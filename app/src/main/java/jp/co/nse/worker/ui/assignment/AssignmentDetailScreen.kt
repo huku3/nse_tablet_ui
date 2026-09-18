@@ -27,6 +27,7 @@ import androidx.compose.material.icons.automirrored.filled.Logout
 import androidx.compose.material.icons.automirrored.filled.Undo
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -122,89 +123,13 @@ class AssignmentDetailViewModel(
     var deadlineLeavesByDate by mutableStateOf<Map<String, List<String>>>(emptyMap())
         private set
     private var loadedDeadlineLeaveMonth: YearMonth? = null
-    var saving by mutableStateOf(false)
-        private set
     var message by mutableStateOf<String?>(null)
 
-    var deadlineError by mutableStateOf<String?>(null)
-        private set
     var holidayDates by mutableStateOf<Set<String>>(emptySet())
         private set
     var overrideDates by mutableStateOf<Set<String>>(emptySet())
         private set
     private val loadedFiscalYears = mutableSetOf<Int>()
-
-    var autoAssigning by mutableStateOf(false)
-        private set
-    var unassigningAll by mutableStateOf(false)
-        private set
-
-    /** 直前の一括未割り当てで解除した (processId, 元の担当者名) の一覧。Undoの復元に使う */
-    var pendingUnassignSnapshot by mutableStateOf<List<Pair<Int, String>>?>(null)
-        private set
-
-    /** 一括未割り当てが成功した直後だけセットされる件数。Snackbar表示のワンショットトリガー */
-    var unassignUndoCount by mutableStateOf<Int?>(null)
-        private set
-
-    fun consumeUnassignUndoCount() {
-        unassignUndoCount = null
-    }
-
-    /** 担当工程マスタを参照し、未割り当ての工程にデフォルト担当者を自動で割り振る */
-    fun autoAssign() {
-        viewModelScope.launch {
-            autoAssigning = true
-            when (val result = repo.autoAssign(orderId)) {
-                is ApiResult.Success -> {
-                    message = result.data.message
-                    reloadOrder()
-                }
-                is ApiResult.Failure -> message = result.message
-            }
-            autoAssigning = false
-        }
-    }
-
-    /**
-     * 担当者割り当て済みの未完了工程を、確認モーダルなしで即座にまとめて未割り当てに戻す（楽観的更新）。
-     * 解除前の割り当て（誰が担当していたか）を [pendingUnassignSnapshot] に保持しておき、
-     * Undoが押されたら1件ずつ元の担当者へ再割り当てして正確に復元する。
-     */
-    fun unassignAll() {
-        val o = order ?: return
-        val snapshot = o.processes
-            .filter { it.status != WorkStatus.COMPLETED && !it.worker.isNullOrBlank() }
-            .map { it.id to it.worker!! }
-        if (snapshot.isEmpty()) return
-
-        viewModelScope.launch {
-            unassigningAll = true
-            when (val result = repo.unassignAll(orderId)) {
-                is ApiResult.Success -> {
-                    pendingUnassignSnapshot = snapshot
-                    unassignUndoCount = snapshot.size
-                    reloadOrder()
-                }
-                is ApiResult.Failure -> message = result.message
-            }
-            unassigningAll = false
-        }
-    }
-
-    /** 一括未割り当ての直前の状態（どの工程に誰が割り当てられていたか）を正確に復元する */
-    fun undoUnassignAll() {
-        val snapshot = pendingUnassignSnapshot ?: return
-        pendingUnassignSnapshot = null
-        viewModelScope.launch {
-            unassigningAll = true
-            snapshot.forEach { (processId, workerName) ->
-                repo.assignWorker(orderId, processId, workerName)
-            }
-            reloadOrder()
-            unassigningAll = false
-        }
-    }
 
     fun load() {
         viewModelScope.launch {
@@ -283,22 +208,6 @@ class AssignmentDetailViewModel(
         return workers.filter { it.id in assignedUserIds }
     }
 
-    fun assign(processId: Int, workerName: String?) {
-        val o = order ?: return
-        // 個別に手動で担当者を変更したら、一括未割り当てのUndo提示は対象外になるので消す
-        pendingUnassignSnapshot = null
-        unassignUndoCount = null
-        viewModelScope.launch {
-            saving = true
-            val result = repo.assignWorker(o.id, processId, workerName)
-            saving = false
-            when (result) {
-                is ApiResult.Success -> reloadOrder()
-                is ApiResult.Failure -> message = result.message
-            }
-        }
-    }
-
     /** カレンダーに表示中の月の年度分の休日データを（未取得なら）読み込む */
     fun ensureHolidaysLoaded(visibleMonth: YearMonth) {
         val fy = DateUtil.fiscalYearOf(visibleMonth.atDay(1))
@@ -315,25 +224,161 @@ class AssignmentDetailViewModel(
         }
     }
 
-    fun updateDeadline(processId: Int, deadline: LocalDate?, onSuccess: () -> Unit) {
+    // ===== 受注詳細画面の「編集」モード：担当者・工程納期をその場でまとめて変更し、
+    // 「保存」を押すまでどれもサーバーには送らない。押した時点で1回のAPI呼び出しでまとめて送信する =====
+
+    /** 編集中の担当者（processId→未保存の担当者名。キーが無い工程は未編集＝現在のまま） */
+    var pendingWorkers by mutableStateOf<Map<Int, String?>>(emptyMap())
+        private set
+
+    /** 編集中の工程納期（processId→未保存の日付ISO文字列。キーが無い工程は未編集＝現在のまま） */
+    var pendingDeadlines by mutableStateOf<Map<Int, String?>>(emptyMap())
+        private set
+
+    var editMode by mutableStateOf(false)
+        private set
+
+    var batchSaving by mutableStateOf(false)
+        private set
+
+    var batchError by mutableStateOf<String?>(null)
+        private set
+
+    val hasPendingChanges: Boolean
+        get() = pendingWorkers.isNotEmpty() || pendingDeadlines.isNotEmpty()
+
+    fun enterEditMode() {
+        editMode = true
+        pendingWorkers = emptyMap()
+        pendingDeadlines = emptyMap()
+        batchError = null
+    }
+
+    fun cancelEdit() {
+        editMode = false
+        pendingWorkers = emptyMap()
+        pendingDeadlines = emptyMap()
+        batchError = null
+    }
+
+    fun stageWorker(processId: Int, name: String?) {
+        pendingWorkers = pendingWorkers + (processId to name)
+    }
+
+    fun stageDeadline(processId: Int, date: LocalDate?) {
+        pendingDeadlines = pendingDeadlines + (processId to date?.toString())
+    }
+
+    /** 編集モード中に画面へ表示する担当者（未編集ならサーバーから読み込んだ現在の値） */
+    fun effectiveWorker(process: AssignProcessDto): String? =
+        if (pendingWorkers.containsKey(process.id)) pendingWorkers[process.id] else process.worker
+
+    /** 編集モード中に画面へ表示する工程納期（未編集ならサーバーから読み込んだ現在の値） */
+    fun effectiveDeadline(process: AssignProcessDto): LocalDate? =
+        if (pendingDeadlines.containsKey(process.id)) {
+            pendingDeadlines[process.id]?.let { DateUtil.parse(it) }
+        } else {
+            DateUtil.parse(process.process_deadline)
+        }
+
+    fun isDirty(processId: Int): Boolean =
+        pendingWorkers.containsKey(processId) || pendingDeadlines.containsKey(processId)
+
+    /** 担当工程マスタで登録されているデフォルト担当者名を返す（マスタ未登録・デフォルト未設定ならnull） */
+    private fun defaultWorkerNameFor(processName: String): String? {
+        val master = processAssignments.process_masters.find { it.name == processName } ?: return null
+        val defaultUserId = processAssignments.assignments
+            .find { it.process_master_id == master.id && it.is_default }
+            ?.user_id ?: return null
+        return workers.find { it.id == defaultUserId }?.name
+    }
+
+    /**
+     * 担当工程マスタを参照し、未割り当ての工程にデフォルト担当者を割り振る。編集モード中の操作なので
+     * サーバーへは送らず、他の編集内容と同じくこの画面内で保持するだけにする
+     * （「保存」を押すまで確定せず、「キャンセル」で他の編集と一緒に破棄できる）。
+     */
+    /** @return 新しく担当者を割り振った工程（工程納期がまだ無いものだけ）。呼び出し側で続けて納期選択に進める */
+    fun stageAutoAssign(): List<AssignProcessDto> {
+        val o = order ?: return emptyList()
+        val assigned = mutableListOf<AssignProcessDto>()
+        // sort_order順に処理する。前工程の工程納期が続けて選ぶ次の工程のmin候補として
+        // 使われるため、若い工程から順に選ばせないと辻褄が合わなくなる
+        o.processes.sortedBy { it.sort_order }.forEach { proc ->
+            if (proc.status == WorkStatus.COMPLETED) return@forEach
+            if (!effectiveWorker(proc).isNullOrBlank()) return@forEach
+            val defaultWorker = defaultWorkerNameFor(proc.process_name) ?: return@forEach
+            stageWorker(proc.id, defaultWorker)
+            assigned += proc
+        }
+        message = if (assigned.isNotEmpty()) {
+            "${assigned.size}件の工程に担当者を割り振りました（未保存。「保存」を押すまで確定しません）。続けて工程納期を選んでください。"
+        } else {
+            "自動割り振り可能な未割り当て工程はありませんでした（担当工程マスタにデフォルト担当者の設定が必要です）。"
+        }
+        // 工程納期が既に決まっている工程まで選び直させると邪魔なので、未設定のものだけ続けて選ばせる
+        return assigned.filter { effectiveDeadline(it) == null }
+    }
+
+    /**
+     * 担当者割り当て済みの未完了工程をまとめて未割り当てにする。編集モード中の操作なので
+     * サーバーへは送らず、他の編集内容と同じくこの画面内で保持するだけにする
+     * （「保存」を押すまで確定せず、「キャンセル」で他の編集と一緒に破棄できる）。
+     */
+    /** 担当者・工程納期の両方を未設定に戻す（どちらか一方だけ設定済みの工程も対象にする） */
+    fun stageResetAll() {
         val o = order ?: return
-        viewModelScope.launch {
-            saving = true
-            deadlineError = null
-            val result = repo.updateDeadline(o.id, processId, deadline?.toString())
-            saving = false
-            when (result) {
-                is ApiResult.Success -> {
-                    reloadOrder()
-                    onSuccess()
-                }
-                is ApiResult.Failure -> deadlineError = result.message
-            }
+        var count = 0
+        o.processes.forEach { proc ->
+            if (proc.status == WorkStatus.COMPLETED) return@forEach
+            val hasWorker = !effectiveWorker(proc).isNullOrBlank()
+            val hasDeadline = effectiveDeadline(proc) != null
+            if (!hasWorker && !hasDeadline) return@forEach
+            if (hasWorker) stageWorker(proc.id, null)
+            if (hasDeadline) stageDeadline(proc.id, null)
+            count++
+        }
+        message = if (count > 0) {
+            "${count}件の担当者・工程納期を未設定に戻しました（未保存。「保存」を押すまで確定しません）。"
+        } else {
+            "リセットできる工程はありませんでした。"
         }
     }
 
-    fun clearDeadlineError() {
-        deadlineError = null
+    /**
+     * 編集した工程だけをまとめて1回のAPI呼び出しで保存する。同じ担当者へ複数工程を新しく
+     * 割り当てた場合、サーバー側で通知を1通にまとめてくれる（工程数分は届かない）。
+     */
+    fun saveEdits(onSuccess: () -> Unit) {
+        val o = order ?: return
+        val touchedIds = (pendingWorkers.keys + pendingDeadlines.keys)
+        if (touchedIds.isEmpty()) {
+            editMode = false
+            return
+        }
+        val items = touchedIds.mapNotNull { pid ->
+            val proc = o.processes.find { it.id == pid } ?: return@mapNotNull null
+            jp.co.nse.worker.data.BatchAssignItem(
+                process_id = pid,
+                worker = if (pendingWorkers.containsKey(pid)) pendingWorkers[pid] else proc.worker,
+                process_deadline = if (pendingDeadlines.containsKey(pid)) pendingDeadlines[pid] else proc.process_deadline,
+            )
+        }
+        viewModelScope.launch {
+            batchSaving = true
+            batchError = null
+            when (val result = repo.batchAssignProcesses(o.id, items)) {
+                is ApiResult.Success -> {
+                    pendingWorkers = emptyMap()
+                    pendingDeadlines = emptyMap()
+                    editMode = false
+                    reloadOrder()
+                    onSuccess()
+                }
+                is ApiResult.Failure -> batchError = result.message
+            }
+            batchSaving = false
+        }
     }
 
     private suspend fun reloadOrder() {
@@ -364,7 +409,13 @@ fun AssignmentDetailScreen(
     val snackbar = remember { SnackbarHostState() }
     var pickerProcess by remember { mutableStateOf<AssignProcessDto?>(null) }
     var deadlineProcess by remember { mutableStateOf<AssignProcessDto?>(null) }
+    // 工程行をタップして担当者選択→工程納期カレンダーと連続で進める場合にtrueにする。
+    // 個別の「変更」ボタンから開いた場合はfalseのままにして、単独の編集で完結させる
+    var wizardActive by remember { mutableStateOf(false) }
     var showAutoAssignConfirm by remember { mutableStateOf(false) }
+    // 自動割り振り直後、割り振った工程の工程納期を1件ずつ続けて選ばせるための待ち行列
+    // （deadlineProcessが1件分の表示を担当し、確定・キャンセルのたびにここから次を取り出す）
+    var autoAssignDeadlineQueue by remember { mutableStateOf<List<AssignProcessDto>>(emptyList()) }
     val userName = rememberCurrentUserName()
 
     LaunchedEffect(Unit) { vm.load() }
@@ -374,20 +425,6 @@ fun AssignmentDetailScreen(
             vm.message = null
         }
     }
-    // 一括未割り当ての直後だけ、件数＋「元に戻す」アクション付きのSnackbarを表示する
-    LaunchedEffect(vm.unassignUndoCount) {
-        val count = vm.unassignUndoCount ?: return@LaunchedEffect
-        vm.consumeUnassignUndoCount()
-        val result = snackbar.showSnackbar(
-            message = "${count}件を未割り当てに戻しました",
-            actionLabel = "元に戻す",
-            duration = androidx.compose.material3.SnackbarDuration.Long,
-        )
-        if (result == androidx.compose.material3.SnackbarResult.ActionPerformed) {
-            vm.undoUnassignAll()
-        }
-    }
-
     Scaffold(
         snackbarHost = { SnackbarHost(snackbar) },
         topBar = {
@@ -490,10 +527,11 @@ fun AssignmentDetailScreen(
                         }
                         item {
                             val hasUnassigned = order.processes.any {
-                                it.status != WorkStatus.COMPLETED && it.worker.isNullOrBlank()
+                                it.status != WorkStatus.COMPLETED && vm.effectiveWorker(it).isNullOrBlank()
                             }
-                            val hasAssigned = order.processes.any {
-                                it.status != WorkStatus.COMPLETED && !it.worker.isNullOrBlank()
+                            val hasResettable = order.processes.any {
+                                it.status != WorkStatus.COMPLETED &&
+                                    (!vm.effectiveWorker(it).isNullOrBlank() || vm.effectiveDeadline(it) != null)
                             }
                             Column(Modifier.padding(bottom = 6.dp)) {
                                 Text(
@@ -514,58 +552,113 @@ fun AssignmentDetailScreen(
                                     color = Color(0xFF6B7280),
                                 )
                                 Spacer(Modifier.height(12.dp))
+                                if (vm.editMode) {
+                                    Row(
+                                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                                        modifier = Modifier.fillMaxWidth(),
+                                    ) {
+                                        Button(
+                                            onClick = { feedback(); vm.saveEdits { } },
+                                            enabled = vm.hasPendingChanges && !vm.batchSaving,
+                                            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
+                                            shape = RoundedCornerShape(12.dp),
+                                            modifier = Modifier.weight(1f).height(52.dp),
+                                        ) {
+                                            if (vm.batchSaving) {
+                                                CircularProgressIndicator(
+                                                    Modifier.size(20.dp),
+                                                    color = MaterialTheme.colorScheme.onPrimary,
+                                                    strokeWidth = 2.dp,
+                                                )
+                                            } else {
+                                                Icon(Icons.Filled.Check, contentDescription = null, modifier = Modifier.size(18.dp))
+                                                Spacer(Modifier.width(6.dp))
+                                                Text("保存", fontWeight = FontWeight.Bold, fontSize = 15.sp)
+                                            }
+                                        }
+                                        OutlinedButton(
+                                            onClick = {
+                                                feedback()
+                                                vm.cancelEdit()
+                                                // ダイアログ呼び出し中の状態が残っていれば一緒に閉じる
+                                                pickerProcess = null
+                                                deadlineProcess = null
+                                                wizardActive = false
+                                                autoAssignDeadlineQueue = emptyList()
+                                            },
+                                            enabled = !vm.batchSaving,
+                                            shape = RoundedCornerShape(12.dp),
+                                            modifier = Modifier.weight(1f).height(52.dp),
+                                        ) {
+                                            Text("キャンセル", fontWeight = FontWeight.Bold, fontSize = 15.sp, color = Color(0xFF6B7280))
+                                        }
+                                    }
+                                    vm.batchError?.let {
+                                        Text(
+                                            it,
+                                            color = MaterialTheme.colorScheme.error,
+                                            fontSize = 13.sp,
+                                            modifier = Modifier.padding(top = 8.dp),
+                                        )
+                                    }
+                                    Spacer(Modifier.height(12.dp))
+                                } else {
+                                    Row(
+                                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                                        modifier = Modifier.fillMaxWidth(),
+                                    ) {
+                                        Button(
+                                            onClick = { feedback(); vm.enterEditMode() },
+                                            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
+                                            shape = RoundedCornerShape(12.dp),
+                                            modifier = Modifier.weight(1f).height(52.dp),
+                                        ) {
+                                            Icon(Icons.Filled.Edit, contentDescription = null, modifier = Modifier.size(18.dp))
+                                            Spacer(Modifier.width(6.dp))
+                                            Text("編集", fontWeight = FontWeight.Bold, fontSize = 15.sp)
+                                        }
+                                    }
+                                    Spacer(Modifier.height(12.dp))
+                                }
+                                // 自動割り振り・一括リセットは編集モード中のみ使える。
+                                // どちらもサーバーへは送らずこの画面内で保持するだけなので、
+                                // 「保存」を押すまで確定せず「キャンセル」で他の編集と一緒に破棄できる
                                 Row(
                                     horizontalArrangement = Arrangement.spacedBy(12.dp),
                                     modifier = Modifier.fillMaxWidth(),
                                 ) {
                                     Button(
                                         onClick = { feedback(); showAutoAssignConfirm = true },
-                                        enabled = hasUnassigned && !vm.autoAssigning && !vm.unassigningAll,
+                                        enabled = vm.editMode && hasUnassigned,
                                         colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
                                         shape = RoundedCornerShape(12.dp),
                                         modifier = Modifier.weight(1f).height(52.dp),
                                     ) {
-                                        if (vm.autoAssigning) {
-                                            CircularProgressIndicator(
-                                                Modifier.size(20.dp),
-                                                color = MaterialTheme.colorScheme.onPrimary,
-                                                strokeWidth = 2.dp,
-                                            )
-                                        } else {
-                                            Icon(Icons.Filled.AutoAwesome, contentDescription = null, modifier = Modifier.size(18.dp))
-                                            Spacer(Modifier.width(6.dp))
-                                            Text(
-                                                "自動割り振り",
-                                                fontWeight = FontWeight.Bold,
-                                                fontSize = 15.sp,
-                                                textAlign = TextAlign.Center,
-                                            )
-                                        }
+                                        Icon(Icons.Filled.AutoAwesome, contentDescription = null, modifier = Modifier.size(18.dp))
+                                        Spacer(Modifier.width(6.dp))
+                                        Text(
+                                            "自動割り振り",
+                                            fontWeight = FontWeight.Bold,
+                                            fontSize = 15.sp,
+                                            textAlign = TextAlign.Center,
+                                        )
                                     }
                                     OutlinedButton(
-                                        onClick = { feedback(); vm.unassignAll() },
-                                        enabled = hasAssigned && !vm.autoAssigning && !vm.unassigningAll,
+                                        onClick = { feedback(); vm.stageResetAll() },
+                                        enabled = vm.editMode && hasResettable,
                                         colors = ButtonDefaults.outlinedButtonColors(contentColor = Red500),
                                         border = BorderStroke(1.5.dp, Red500),
                                         shape = RoundedCornerShape(12.dp),
                                         modifier = Modifier.weight(1f).height(52.dp),
                                     ) {
-                                        if (vm.unassigningAll) {
-                                            CircularProgressIndicator(
-                                                Modifier.size(20.dp),
-                                                color = Red500,
-                                                strokeWidth = 2.dp,
-                                            )
-                                        } else {
-                                            Icon(Icons.AutoMirrored.Filled.Undo, contentDescription = null, modifier = Modifier.size(18.dp))
-                                            Spacer(Modifier.width(6.dp))
-                                            Text(
-                                                "一括で未割り当てに戻す",
-                                                fontWeight = FontWeight.Bold,
-                                                fontSize = 15.sp,
-                                                textAlign = TextAlign.Center,
-                                            )
-                                        }
+                                        Icon(Icons.AutoMirrored.Filled.Undo, contentDescription = null, modifier = Modifier.size(18.dp))
+                                        Spacer(Modifier.width(6.dp))
+                                        Text(
+                                            "一括リセット",
+                                            fontWeight = FontWeight.Bold,
+                                            fontSize = 15.sp,
+                                            textAlign = TextAlign.Center,
+                                        )
                                     }
                                 }
                             }
@@ -574,8 +667,13 @@ fun AssignmentDetailScreen(
                         items(procs, key = { it.id }) { proc ->
                             ProcessAssignRow(
                                 process = proc,
-                                onChangeWorker = { pickerProcess = proc },
-                                onChangeDeadline = { deadlineProcess = proc },
+                                workerName = vm.effectiveWorker(proc),
+                                deadline = vm.effectiveDeadline(proc),
+                                editable = vm.editMode,
+                                isDirty = vm.isDirty(proc.id),
+                                onTapRow = { wizardActive = true; pickerProcess = proc },
+                                onChangeWorker = { wizardActive = false; pickerProcess = proc },
+                                onChangeDeadline = { wizardActive = false; deadlineProcess = proc },
                             )
                         }
                     }
@@ -610,15 +708,18 @@ fun AssignmentDetailScreen(
             WorkerPickerDialog(
                 order = order,
                 processName = proc.process_name,
-                current = proc.worker,
+                current = vm.effectiveWorker(proc),
                 workers = vm.eligibleWorkers(proc.process_name),
-                saving = vm.saving,
+                saving = false,
                 leaveWorkerNames = vm.pickerLeaveWorkerNames,
                 onSelect = { name ->
                     pickerProcess = null
-                    vm.assign(proc.id, name)
+                    // 編集モード中はサーバーへは送らず、保存を押すまでこの画面内だけで保持する
+                    vm.stageWorker(proc.id, name)
+                    // 工程行タップからの流れなら、続けて工程納期カレンダーを開く
+                    if (wizardActive) deadlineProcess = proc
                 },
-                onDismiss = { pickerProcess = null },
+                onDismiss = { wizardActive = false; pickerProcess = null },
             )
         }
     }
@@ -628,31 +729,41 @@ fun AssignmentDetailScreen(
         if (order != null) {
             val sortedProcs = order.processes.sortedBy { it.sort_order }
             val prevProcess = sortedProcs.lastOrNull { it.sort_order < proc.sort_order }
-            val minDate = prevProcess?.process_deadline?.let { DateUtil.parse(it) }
+            val minDate = prevProcess?.let { vm.effectiveDeadline(it) }
             val maxDate = DateUtil.parse(order.delivery_date)
 
             DeadlineCalendarDialog(
                 order = order,
                 processName = proc.process_name,
-                workerName = proc.worker,
-                initialDate = DateUtil.parse(proc.process_deadline),
+                workerName = vm.effectiveWorker(proc),
+                initialDate = vm.effectiveDeadline(proc),
                 minDate = minDate,
                 maxDate = maxDate,
                 holidayDates = vm.holidayDates,
                 overrideDates = vm.overrideDates,
                 leavesByDate = vm.deadlineLeavesByDate,
-                saving = vm.saving,
-                serverError = vm.deadlineError,
+                saving = false,
+                serverError = null,
                 onVisibleMonthChanged = {
                     vm.ensureHolidaysLoaded(it)
                     vm.ensureDeadlineLeaveLoaded(it)
                 },
                 onConfirm = { date ->
-                    vm.updateDeadline(proc.id, date) { deadlineProcess = null }
+                    // 編集モード中はサーバーへは送らず、保存を押すまでこの画面内だけで保持する
+                    vm.stageDeadline(proc.id, date)
+                    wizardActive = false
+                    // 自動割り振り直後の連続選択中なら、続けて次の工程の工程納期を選ばせる
+                    val next = autoAssignDeadlineQueue.firstOrNull()
+                    autoAssignDeadlineQueue = autoAssignDeadlineQueue.drop(1)
+                    deadlineProcess = next
                 },
                 onDismiss = {
-                    vm.clearDeadlineError()
-                    deadlineProcess = null
+                    wizardActive = false
+                    // 自動割り振り連続選択中なら、この工程はスキップして次に進む
+                    // （手動でタップして開いた単独編集の場合はキューが空なのでそのまま閉じる）
+                    val next = autoAssignDeadlineQueue.firstOrNull()
+                    autoAssignDeadlineQueue = autoAssignDeadlineQueue.drop(1)
+                    deadlineProcess = next
                 },
             )
         }
@@ -662,7 +773,12 @@ fun AssignmentDetailScreen(
         AutoAssignConfirmDialog(
             onConfirm = {
                 showAutoAssignConfirm = false
-                vm.autoAssign()
+                val needsDeadline = vm.stageAutoAssign()
+                if (needsDeadline.isNotEmpty()) {
+                    wizardActive = false
+                    autoAssignDeadlineQueue = needsDeadline.drop(1)
+                    deadlineProcess = needsDeadline.first()
+                }
             },
             onCancel = { showAutoAssignConfirm = false },
         )
@@ -679,7 +795,7 @@ private fun AutoAssignConfirmDialog(onConfirm: () -> Unit, onCancel: () -> Unit)
         text = {
             Text(
                 "担当工程マスタでデフォルト担当者が設定されている工程に、未割り当て分をまとめて割り振ります。" +
-                    "マスタに設定がない工程はスキップされます。",
+                    "マスタに設定がない工程はスキップされます。「保存」を押すまで確定しません。",
                 fontSize = 14.sp,
             )
         },
@@ -751,36 +867,63 @@ private fun OrderContextMiniLabel(label: String, value: String, unit: String? = 
 @Composable
 private fun ProcessAssignRow(
     process: AssignProcessDto,
+    workerName: String?,
+    deadline: LocalDate?,
+    editable: Boolean,
+    isDirty: Boolean,
+    onTapRow: () -> Unit,
     onChangeWorker: () -> Unit,
     onChangeDeadline: () -> Unit,
 ) {
     val feedback = rememberClickFeedback()
     val isCompleted = process.status == WorkStatus.COMPLETED
-    val hasWorker = !process.worker.isNullOrBlank()
-    val deadline = DateUtil.parse(process.process_deadline)
+    val hasWorker = !workerName.isNullOrBlank()
 
     Card(
         colors = CardDefaults.cardColors(
-            containerColor = if (isCompleted) Color(0xFFECFDF5) else Color.White,
+            containerColor = when {
+                isCompleted -> Color(0xFFECFDF5)
+                isDirty -> Color(0xFFFFFBEB)
+                else -> Color.White
+            },
         ),
-        border = if (isCompleted) BorderStroke(1.5.dp, Color(0xFF6EE7B7)) else null,
+        border = when {
+            isCompleted -> BorderStroke(1.5.dp, Color(0xFF6EE7B7))
+            isDirty -> BorderStroke(1.5.dp, Color(0xFFFBBF24))
+            else -> null
+        },
         elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
         shape = RoundedCornerShape(14.dp),
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier
+            .fillMaxWidth()
+            .let { if (editable && !isCompleted) it.clickable { feedback(); onTapRow() } else it },
     ) {
         Column(Modifier.padding(14.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
-                    Text(
-                        process.process_name,
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 16.sp,
-                        color = if (isCompleted) Color(0xFF065F46) else MaterialTheme.colorScheme.onSurface,
-                    )
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            process.process_name,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 16.sp,
+                            color = if (isCompleted) Color(0xFF065F46) else MaterialTheme.colorScheme.onSurface,
+                        )
+                        if (isDirty) {
+                            Spacer(Modifier.width(6.dp))
+                            Box(
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(50))
+                                    .background(Color(0xFFFDE68A))
+                                    .padding(horizontal = 8.dp, vertical = 2.dp),
+                            ) {
+                                Text("未保存", color = Color(0xFF92400E), fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                            }
+                        }
+                    }
                     Spacer(Modifier.height(4.dp))
                     if (hasWorker) {
                         Text(
-                            "担当: ${process.worker}",
+                            "担当: $workerName",
                             fontSize = 14.sp,
                             color = if (isCompleted) Color(0xFF10B981) else Green700,
                             fontWeight = FontWeight.SemiBold,
@@ -801,7 +944,7 @@ private fun ProcessAssignRow(
                         Spacer(Modifier.width(4.dp))
                         Text("完了", color = Color(0xFF047857), fontWeight = FontWeight.Bold, fontSize = 13.sp)
                     }
-                } else {
+                } else if (editable) {
                     TextButton(onClick = { feedback(); onChangeWorker() }) {
                         Text(if (hasWorker) "変更" else "割り当て", color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
                     }
@@ -820,7 +963,7 @@ private fun ProcessAssignRow(
                     color = if (deadline != null) Color(0xFF1F2937) else Color(0xFF9CA3AF),
                     modifier = Modifier.weight(1f),
                 )
-                if (!isCompleted) {
+                if (!isCompleted && editable) {
                     TextButton(onClick = { feedback(); onChangeDeadline() }) {
                         Text(if (deadline != null) "変更" else "設定", color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
                     }

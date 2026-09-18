@@ -19,6 +19,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Logout
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Check
@@ -223,10 +224,11 @@ class InventoryViewModel(private val repo: ManagerRepository) : ViewModel() {
 /**
  * 在庫一覧：加工済み在庫（閲覧専用）／支給品在庫（入荷・引当・履歴）の2タブ構成。
  * 支給品在庫そのものの新規登録・編集・削除はこの画面では扱わない（Web版のみ）。
+ * ホーム画面の下部タブではなく、ヘッダーのメニューから開く単独画面。
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun InventoryScreen(onLogout: () -> Unit = {}, isActive: Boolean = true, onSwitchTab: (String) -> Unit = {}) {
+fun InventoryScreen(onBack: () -> Unit, onLogout: () -> Unit = {}) {
     val context = androidx.compose.ui.platform.LocalContext.current
     val container = context.appContainer
     val vm: InventoryViewModel = viewModel(
@@ -237,15 +239,13 @@ fun InventoryScreen(onLogout: () -> Unit = {}, isActive: Boolean = true, onSwitc
     // 在庫の閲覧はorders.view権限で足りるが、入荷・引当・取消などの操作は
     // 割り当て権限（checksheet.assign_worker）を持つアカウントだけに限定する
     val canOperate by container.settings.canAssignFlow.collectAsState(initial = false)
-    var tab by remember { mutableStateOf(InventoryTab.PROCESSED) }
+    val pagerState = androidx.compose.foundation.pager.rememberPagerState(initialPage = 0) { InventoryTab.entries.size }
+    val scope = rememberCoroutineScope()
 
-    // 生産管理システム側の更新をタブレットにも反映するため、このタブが表示されている間
-    // だけ30秒おきに裏側で再取得する（一覧が既にあるときはスピナーを出さず静かに更新）。
-    // 初回表示時とタブに切り替わった瞬間にも即座に1回再取得する
-    AutoRefreshEffect(isActive = isActive, refreshImmediately = true) { vm.load() }
-    // このタブはHomeScreenの下部ナビゲーションバー付きScaffoldにネストされているため、
-    // 通常のSnackbarHostだとナビゲーションバーの裏に隠れて文字が見えなくなる。
-    // タブ内に固定表示するバナーにして、常に見える位置に出す。
+    // 生産管理システム側の更新をタブレットにも反映するため、この画面を開いている間だけ
+    // 30秒おきに裏側で再取得する（一覧が既にあるときはスピナーを出さず静かに更新）。
+    // 開いた瞬間にも即座に1回再取得する
+    AutoRefreshEffect(isActive = true, refreshImmediately = true) { vm.load() }
     LaunchedEffect(vm.message) {
         vm.message?.let {
             kotlinx.coroutines.delay(4000)
@@ -257,11 +257,18 @@ fun InventoryScreen(onLogout: () -> Unit = {}, isActive: Boolean = true, onSwitc
         topBar = {
             CenterAlignedTopAppBar(
                 title = { HeaderTitle("在庫") },
-                navigationIcon = { HeaderLogo(onClick = { onSwitchTab("INVENTORY") }) },
+                navigationIcon = {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        IconButton(onClick = { feedback(); onBack() }) {
+                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "戻る", tint = MaterialTheme.colorScheme.onPrimary)
+                        }
+                        HeaderLogo()
+                    }
+                },
                 actions = {
                     HeaderUserLabel(userName)
-                    NotificationBell(isActive = isActive)
-                    HeaderOverflowMenu(currentHomeTab = "INVENTORY", onSwitchHomeTab = onSwitchTab)
+                    NotificationBell()
+                    HeaderOverflowMenu(showInventory = false)
                     IconButton(onClick = { feedback(); vm.load() }) {
                         Icon(Icons.Filled.Refresh, contentDescription = "更新", tint = MaterialTheme.colorScheme.onPrimary)
                     }
@@ -280,11 +287,11 @@ fun InventoryScreen(onLogout: () -> Unit = {}, isActive: Boolean = true, onSwitc
     ) { padding ->
         Box(Modifier.fillMaxSize().padding(padding).background(MaterialTheme.colorScheme.background)) {
             Column(Modifier.fillMaxSize()) {
-                TabRow(selectedTabIndex = tab.ordinal) {
+                TabRow(selectedTabIndex = pagerState.currentPage) {
                     InventoryTab.entries.forEach { t ->
                         Tab(
-                            selected = tab == t,
-                            onClick = { feedback(); tab = t },
+                            selected = pagerState.currentPage == t.ordinal,
+                            onClick = { feedback(); scope.launch { pagerState.animateScrollToPage(t.ordinal) } },
                             text = { Text(t.label, fontWeight = FontWeight.Bold) },
                         )
                     }
@@ -298,8 +305,9 @@ fun InventoryScreen(onLogout: () -> Unit = {}, isActive: Boolean = true, onSwitc
                     )
                 }
 
-                val listState = androidx.compose.foundation.lazy.rememberLazyListState()
-                val scope = rememberCoroutineScope()
+                val processedListState = androidx.compose.foundation.lazy.rememberLazyListState()
+                val materialListState = androidx.compose.foundation.lazy.rememberLazyListState()
+                val currentListState = if (pagerState.currentPage == InventoryTab.PROCESSED.ordinal) processedListState else materialListState
 
                 Box(Modifier.weight(1f).fillMaxWidth()) {
                     when {
@@ -315,60 +323,69 @@ fun InventoryScreen(onLogout: () -> Unit = {}, isActive: Boolean = true, onSwitc
                             Button(onClick = { feedback(); vm.load() }) { Text("再読み込み") }
                         }
 
-                        tab == InventoryTab.PROCESSED -> {
-                            val processed = vm.processedOrders
-                            LazyColumn(
-                                state = listState,
-                                modifier = Modifier.fillMaxSize(),
-                                contentPadding = PaddingValues(16.dp),
-                                verticalArrangement = Arrangement.spacedBy(10.dp),
-                            ) {
-                                if (processed.isEmpty()) {
-                                    item(key = "empty") {
-                                        Text(
-                                            "加工済み在庫はありません",
-                                            modifier = Modifier.fillMaxWidth().padding(vertical = 32.dp),
-                                            textAlign = androidx.compose.ui.text.style.TextAlign.Center,
-                                            color = Color(0xFF9CA3AF),
-                                            fontWeight = FontWeight.Bold,
-                                        )
-                                    }
-                                } else {
-                                    items(processed, key = { it.id }) { order -> ProcessedOrderCard(order) }
-                                }
-                            }
-                        }
-
                         else -> {
-                            LazyColumn(
-                                state = listState,
+                            androidx.compose.foundation.pager.HorizontalPager(
+                                state = pagerState,
                                 modifier = Modifier.fillMaxSize(),
-                                contentPadding = PaddingValues(16.dp),
-                                verticalArrangement = Arrangement.spacedBy(10.dp),
-                            ) {
-                                if (vm.materials.isEmpty()) {
-                                    item(key = "empty") {
-                                        Text(
-                                            "支給品在庫はありません",
-                                            modifier = Modifier.fillMaxWidth().padding(vertical = 32.dp),
-                                            textAlign = androidx.compose.ui.text.style.TextAlign.Center,
-                                            color = Color(0xFF9CA3AF),
-                                            fontWeight = FontWeight.Bold,
-                                        )
+                            ) { page ->
+                                when (InventoryTab.entries[page]) {
+                                    InventoryTab.PROCESSED -> {
+                                        val processed = vm.processedOrders
+                                        LazyColumn(
+                                            state = processedListState,
+                                            modifier = Modifier.fillMaxSize(),
+                                            contentPadding = PaddingValues(16.dp),
+                                            verticalArrangement = Arrangement.spacedBy(10.dp),
+                                        ) {
+                                            if (processed.isEmpty()) {
+                                                item(key = "empty") {
+                                                    Text(
+                                                        "加工済み在庫はありません",
+                                                        modifier = Modifier.fillMaxWidth().padding(vertical = 32.dp),
+                                                        textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                                                        color = Color(0xFF9CA3AF),
+                                                        fontWeight = FontWeight.Bold,
+                                                    )
+                                                }
+                                            } else {
+                                                items(processed, key = { it.id }) { order -> ProcessedOrderCard(order) }
+                                            }
+                                        }
                                     }
-                                } else {
-                                    items(vm.materials, key = { it.id }) { mi ->
-                                        MaterialInventoryCard(
-                                            material = mi,
-                                            canOperate = canOperate,
-                                            candidates = vm.candidatesByMaterial[mi.id],
-                                            candidatesLoading = mi.id in vm.candidatesLoading,
-                                            onExpandAllocate = { vm.loadCandidates(mi.id) },
-                                            onRestock = { qty, note, onDone -> vm.restock(mi.id, qty, note, onDone) },
-                                            onAllocate = { orderId, qty, onDone -> vm.allocate(mi.id, orderId, qty, onDone) },
-                                            onDeallocate = { allocationId -> vm.deallocate(allocationId) },
-                                            onDeleteTransaction = { transactionId -> vm.deleteTransaction(transactionId) },
-                                        )
+
+                                    InventoryTab.MATERIAL -> {
+                                        LazyColumn(
+                                            state = materialListState,
+                                            modifier = Modifier.fillMaxSize(),
+                                            contentPadding = PaddingValues(16.dp),
+                                            verticalArrangement = Arrangement.spacedBy(10.dp),
+                                        ) {
+                                            if (vm.materials.isEmpty()) {
+                                                item(key = "empty") {
+                                                    Text(
+                                                        "支給品在庫はありません",
+                                                        modifier = Modifier.fillMaxWidth().padding(vertical = 32.dp),
+                                                        textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                                                        color = Color(0xFF9CA3AF),
+                                                        fontWeight = FontWeight.Bold,
+                                                    )
+                                                }
+                                            } else {
+                                                items(vm.materials, key = { it.id }) { mi ->
+                                                    MaterialInventoryCard(
+                                                        material = mi,
+                                                        canOperate = canOperate,
+                                                        candidates = vm.candidatesByMaterial[mi.id],
+                                                        candidatesLoading = mi.id in vm.candidatesLoading,
+                                                        onExpandAllocate = { vm.loadCandidates(mi.id) },
+                                                        onRestock = { qty, note, onDone -> vm.restock(mi.id, qty, note, onDone) },
+                                                        onAllocate = { orderId, qty, onDone -> vm.allocate(mi.id, orderId, qty, onDone) },
+                                                        onDeallocate = { allocationId -> vm.deallocate(allocationId) },
+                                                        onDeleteTransaction = { transactionId -> vm.deleteTransaction(transactionId) },
+                                                    )
+                                                }
+                                            }
+                                        }
                                     }
                                 }
                             }
@@ -376,16 +393,16 @@ fun InventoryScreen(onLogout: () -> Unit = {}, isActive: Boolean = true, onSwitc
                     }
 
                     ScrollToTopFab(
-                        visible = listState.firstVisibleItemIndex > 0,
-                        onClick = { scope.launch { listState.animateScrollToItem(0) } },
+                        visible = currentListState.firstVisibleItemIndex > 0,
+                        onClick = { scope.launch { currentListState.animateScrollToItem(0) } },
                         modifier = Modifier.align(Alignment.BottomEnd).padding(20.dp),
                     )
                     ScrollToBottomFab(
-                        visible = listState.canScrollForward,
+                        visible = currentListState.canScrollForward,
                         onClick = {
                             scope.launch {
-                                val lastIndex = listState.layoutInfo.totalItemsCount - 1
-                                if (lastIndex >= 0) listState.animateScrollToItem(lastIndex)
+                                val lastIndex = currentListState.layoutInfo.totalItemsCount - 1
+                                if (lastIndex >= 0) currentListState.animateScrollToItem(lastIndex)
                             }
                         },
                         modifier = Modifier.align(Alignment.BottomStart).padding(20.dp),

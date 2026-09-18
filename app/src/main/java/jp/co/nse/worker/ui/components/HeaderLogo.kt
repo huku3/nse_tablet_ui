@@ -42,7 +42,7 @@ fun HeaderLogo(onClick: (() -> Unit)? = null) {
 
     Box(
         modifier = Modifier
-            .padding(start = 8.dp)
+            .padding(start = 14.dp)
             .clip(RoundedCornerShape(6.dp))
             .background(Color.White)
             .clickable { feedback(); action() }

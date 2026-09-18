@@ -12,7 +12,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Assignment
 import androidx.compose.material.icons.automirrored.filled.ListAlt
 import androidx.compose.material.icons.filled.Group
-import androidx.compose.material.icons.filled.Inventory2
 import androidx.compose.material.icons.filled.LocalShipping
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -34,7 +33,6 @@ import jp.co.nse.worker.appContainer
 import jp.co.nse.worker.ui.assignment.AssignmentListScreen
 import jp.co.nse.worker.ui.assignment.OrderListMode
 import jp.co.nse.worker.ui.calendar.ShippingCalendarScreen
-import jp.co.nse.worker.ui.inventory.InventoryScreen
 import jp.co.nse.worker.ui.tasklist.TaskListScreen
 import jp.co.nse.worker.util.rememberClickFeedback
 import kotlinx.coroutines.flow.first
@@ -44,7 +42,6 @@ enum class HomeTab(val label: String, val icon: ImageVector) {
     TASKS("作業一覧", Icons.AutoMirrored.Filled.ListAlt),
     ASSIGN("割り当て", Icons.Filled.Group),
     ORDERS("受注一覧", Icons.AutoMirrored.Filled.Assignment),
-    INVENTORY("在庫", Icons.Filled.Inventory2),
     SHIPPING("出荷カレンダー", Icons.Filled.LocalShipping),
 }
 
@@ -52,6 +49,7 @@ enum class HomeTab(val label: String, val icon: ImageVector) {
  * 実際に権限を持つタブだけを返す（割り当て＝checksheet.assign_worker、受注一覧＝orders.view、
  * 出荷カレンダー＝shipping.calendar）。[HomeScreen]の下部タブと、ヘッダーの
  * [jp.co.nse.worker.ui.components.HeaderOverflowMenu]のタブ切替メニューの両方から参照される。
+ * 在庫は下部タブではなくヘッダーのメニューからのみ開く単独画面（[jp.co.nse.worker.data.AppContainer.openInventory]）。
  */
 fun visibleHomeTabs(canAssign: Boolean, canViewOrders: Boolean, canViewShipping: Boolean): List<HomeTab> = buildList {
     add(HomeTab.TASKS)
@@ -59,9 +57,6 @@ fun visibleHomeTabs(canAssign: Boolean, canViewOrders: Boolean, canViewShipping:
     // 両方の権限を持つアカウントには両方のタブを表示する
     if (canAssign) add(HomeTab.ASSIGN)
     if (canViewOrders) add(HomeTab.ORDERS)
-    // 在庫は受注一覧権限（orders.view、閲覧のみ）か割り当て権限（checksheet.assign_worker、
-    // 閲覧＋入荷・引当等の操作）のどちらかを持つアカウントに表示する
-    if (canViewOrders || canAssign) add(HomeTab.INVENTORY)
     if (canViewShipping) add(HomeTab.SHIPPING)
 }
 
@@ -144,7 +139,6 @@ fun HomeScreen(
                 isActive = isActive,
                 onSwitchTab = switchTab,
             )
-            HomeTab.INVENTORY -> InventoryScreen(onLogout = onLogout, isActive = isActive, onSwitchTab = switchTab)
             HomeTab.SHIPPING -> ShippingCalendarScreen(onOpenCheckSheet = onOpenCheckSheet, onLogout = onLogout, isActive = isActive, onSwitchTab = switchTab)
         }
     }

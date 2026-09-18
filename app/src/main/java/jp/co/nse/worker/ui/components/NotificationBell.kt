@@ -1,5 +1,6 @@
 package jp.co.nse.worker.ui.components
 
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -49,6 +50,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -59,6 +61,7 @@ import jp.co.nse.worker.data.NotificationDto
 import jp.co.nse.worker.ui.theme.Green600
 import jp.co.nse.worker.ui.theme.Indigo700
 import jp.co.nse.worker.ui.theme.Red500
+import jp.co.nse.worker.ui.theme.avatarDrawableForKey
 import jp.co.nse.worker.util.rememberClickFeedback
 
 /**
@@ -151,7 +154,7 @@ private fun openNotificationTarget(context: android.content.Context, notificatio
     val data = notification.data
     when {
         data.process_id != null -> context.appContainer.openTask?.invoke(data.process_id)
-        data.type == "material_stock_match" -> context.appContainer.openHomeTab?.invoke("INVENTORY")
+        data.type == "material_stock_match" -> context.appContainer.openInventory?.invoke()
     }
 }
 
@@ -263,6 +266,10 @@ private fun notificationSummary(notification: NotificationDto): String {
     val orderLabel = data.order_id?.let { "No.$it" } ?: (data.part_name ?: "受注")
     return when (data.type) {
         "process_assigned" -> "${data.assigned_by ?: "担当者"}さんから${orderLabel}の作業指示"
+        "processes_assigned" -> {
+            val count = data.process_names?.size ?: 0
+            "${data.assigned_by ?: "担当者"}さんから${orderLabel}の${count}件の工程の作業指示"
+        }
         "process_turn" -> "${orderLabel}の前工程が完了、作業開始できます"
         "process_broken" -> "工程が故障中として報告されました"
         "process_deadline_overdue" -> "${orderLabel}の工程納期を過ぎています"
@@ -350,6 +357,13 @@ private fun NotificationRow(
                 Indigo700,
                 "${data.assigned_by ?: "担当者"}さんから${orderLabel}の作業指示がきています。",
             )
+        "processes_assigned" ->
+            Triple(
+                Icons.Filled.Campaign,
+                Indigo700,
+                "${data.assigned_by ?: "担当者"}さんから${orderLabel}の${data.process_names?.size ?: 0}件の工程" +
+                    "（${data.process_names?.joinToString("・").orEmpty()}）の作業指示がきています。",
+            )
         "process_turn" ->
             Triple(Icons.Filled.SkipNext, Green600, "${orderLabel}の前工程が完了しました。作業開始できます。")
         "process_broken" -> Triple(Icons.Filled.Build, Red500, "工程が故障中として報告されました")
@@ -369,6 +383,13 @@ private fun NotificationRow(
             )
         else -> Triple(Icons.Filled.Notifications, Color(0xFF6B7280), "お知らせ")
     }
+    // 通知本文の先頭で名指ししている本人のアイコン（設定済みの場合のみ）を、タイトルの頭に添える
+    val titleAvatarKey = when (data.type) {
+        "process_assigned", "processes_assigned" -> data.assigned_by_avatar_key
+        "process_worker_leave_conflict" -> data.worker_avatar_key
+        else -> null
+    }
+    val titleAvatarDrawable = avatarDrawableForKey(titleAvatarKey)
     val subtitle = buildString {
         data.process_name?.let { append(it) }
         data.part_name?.let {
@@ -420,6 +441,13 @@ private fun NotificationRow(
             Spacer(Modifier.width(10.dp))
             Column(Modifier.weight(1f)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
+                    if (titleAvatarDrawable != null) {
+                        Image(
+                            painter = painterResource(titleAvatarDrawable),
+                            contentDescription = null,
+                            modifier = Modifier.size(20.dp).padding(end = 4.dp),
+                        )
+                    }
                     Text(
                         title,
                         fontWeight = FontWeight.Bold,

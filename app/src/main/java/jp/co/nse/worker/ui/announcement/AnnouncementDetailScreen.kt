@@ -103,11 +103,10 @@ fun AnnouncementDetailScreen(
             loading = true
             error = null
             when (val result = container.workerRepository.announcementDetail(announcementId)) {
-                is ApiResult.Success -> {
-                    announcement = result.data
-                    // 詳細を開いた＝閲覧済みとして端末内に記録し、ダッシュボードで再表示しないようにする
-                    container.settings.markAnnouncementSeen(announcementId)
-                }
+                // 詳細を開くと、サーバー側でこのアカウントの既読として記録される
+                // （Api\AnnouncementController::show）。ダッシュボードに戻った際は
+                // 再読み込みでその結果（is_read）が反映される
+                is ApiResult.Success -> announcement = result.data
                 is ApiResult.Failure -> error = result.message
             }
             loading = false

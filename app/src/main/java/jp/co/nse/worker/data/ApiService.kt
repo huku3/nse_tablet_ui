@@ -46,6 +46,18 @@ interface ApiService {
     @PATCH("user/color")
     suspend fun updateColor(@Body body: UpdateColorRequest): Response<UpdateColorResponse>
 
+    /** マイページの文字の大きさ倍率を変更する（アカウントに保存され、次回ログイン時も引き継がれる） */
+    @PATCH("user/font-scale")
+    suspend fun updateFontScale(@Body body: UpdateFontScaleRequest): Response<UpdateFontScaleResponse>
+
+    /** マイページの書体を変更する（アカウントに保存され、次回ログイン時も引き継がれる） */
+    @PATCH("user/font-family")
+    suspend fun updateFontFamily(@Body body: UpdateFontFamilyRequest): Response<UpdateFontFamilyResponse>
+
+    /** マイページのアイコン（プリセットの動物イラスト）を変更する（アカウントに保存され、次回ログイン時も引き継がれる） */
+    @PATCH("user/avatar")
+    suspend fun updateAvatar(@Body body: UpdateAvatarRequest): Response<UpdateAvatarResponse>
+
     @POST("logout")
     suspend fun logout(): Response<ResponseBody>
 
@@ -169,6 +181,13 @@ interface ApiService {
         @Body body: UpdateDeadlineRequest,
     ): Response<ActionResponse>
 
+    /** 受注詳細画面の「編集」でまとめて変更した複数工程の担当者・工程納期を一括保存する */
+    @POST("orders/{order}/processes/batch-assign")
+    suspend fun batchAssignProcesses(
+        @Path("order") orderId: Int,
+        @Body body: BatchAssignRequest,
+    ): Response<ActionResponse>
+
     /** 担当工程マスタを参照し、この受注内の未割り当て工程にデフォルト担当者を自動で割り振る */
     @POST("orders/{order}/auto-assign")
     suspend fun autoAssign(@Path("order") orderId: Int): Response<AutoAssignResponse>
@@ -192,6 +211,38 @@ interface ApiService {
     /** 出荷カレンダーのバーコード検索（発注番号/客先注文番号/受注ID → 受注情報） */
     @GET("shipping-calendar/barcode")
     suspend fun shippingBarcodeSearch(@Query("code") code: String): ShippingBarcodeResponse
+
+    /** 受注照会：客先名・品番・発注番号・客先注文番号のいずれかで受注を検索する（最大30件） */
+    @GET("orders/lookup")
+    suspend fun orderLookup(@Query("q") q: String): OrderLookupResponse
+
+    /** スキャンデータ（コピー機で読み取ったPDF）の一覧 */
+    @GET("scan-data")
+    suspend fun scanDataFiles(): ScanDataListResponse
+
+    /** スキャンデータPDFをダウンロード（認証ヘッダ付き）。@Streaming で大きいPDFもメモリに乗せ過ぎない */
+    @Streaming
+    @GET("scan-data/{filename}/preview")
+    suspend fun scanDataPreview(@Path("filename") filename: String): Response<ResponseBody>
+
+    /** スキャンデータPDFを90度回転し、保存先へ直接上書き保存する */
+    @POST("scan-data/{filename}/rotate")
+    suspend fun rotateScanData(@Path("filename") filename: String): Response<ActionResponse>
+
+    /** スキャンデータPDFを削除する */
+    @DELETE("scan-data/{filename}")
+    suspend fun deleteScanData(@Path("filename") filename: String): Response<ActionResponse>
+
+    /** スキャンデータPDFを指定の受注の検査記録用図面として取り込む */
+    @POST("scan-data/{filename}/attach-inspection")
+    suspend fun attachScanDataInspection(
+        @Path("filename") filename: String,
+        @Body body: AttachInspectionRequest,
+    ): Response<ActionResponse>
+
+    /** 検査記録用図面の取り込み候補（最終検査完了・図面未取り込みの受注）一覧 */
+    @GET("inspection-drawings/candidates")
+    suspend fun inspectionDrawingCandidates(): InspectionCandidatesResponse
 
     /** 出荷完了にする（出荷待ち以外は422で拒否される） */
     @POST("orders/{order}/ship")
@@ -246,6 +297,10 @@ interface ApiService {
         @Path("report") reportId: Int,
         @Body body: UpdateReportStatusRequest,
     ): Response<ActionResponse>
+
+    /** 報告を削除する（管理者向け） */
+    @DELETE("reports/{report}")
+    suspend fun deleteReport(@Path("report") reportId: Int): Response<ActionResponse>
 
     /** 有給休暇・休暇取得状況（長島勤怠システム連携）。start/end省略時は当月 */
     @GET("leaves")

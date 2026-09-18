@@ -6,6 +6,8 @@ import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -44,6 +46,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -83,6 +86,7 @@ import kotlinx.coroutines.withContext
 @Composable
 fun ReportScreen(
     onBack: () -> Unit,
+    onOpenDetail: (reportId: Int) -> Unit = {},
     onLogout: () -> Unit,
 ) {
     val context = LocalContext.current
@@ -101,6 +105,7 @@ fun ReportScreen(
     var error by remember { mutableStateOf<String?>(null) }
     var sent by remember { mutableStateOf(false) }
     var showConfirm by remember { mutableStateOf(false) }
+    val pagerState = androidx.compose.foundation.pager.rememberPagerState(initialPage = 0) { 2 }
     // 送信後の自動画面遷移と、ヘッダーの戻るボタンが競合してpopBackStack()が二重に呼ばれると、
     // 画面遷移アニメーション中にナビゲーションスタックが壊れて真っ白なまま操作不能になることがある。
     // 呼び出し元を問わず一度しか戻らないようにする
@@ -180,10 +185,29 @@ fun ReportScreen(
             )
         },
     ) { padding ->
+        Column(Modifier.fillMaxSize().padding(padding)) {
+            androidx.compose.material3.TabRow(selectedTabIndex = pagerState.currentPage) {
+                androidx.compose.material3.Tab(
+                    selected = pagerState.currentPage == 0,
+                    onClick = { scope.launch { pagerState.animateScrollToPage(0) } },
+                    text = { Text("報告する", fontWeight = FontWeight.Bold) },
+                )
+                androidx.compose.material3.Tab(
+                    selected = pagerState.currentPage == 1,
+                    onClick = { scope.launch { pagerState.animateScrollToPage(1) } },
+                    text = { Text("報告一覧", fontWeight = FontWeight.Bold) },
+                )
+            }
+            androidx.compose.foundation.pager.HorizontalPager(
+                state = pagerState,
+                modifier = Modifier.weight(1f).fillMaxWidth(),
+            ) { page ->
+                if (page == 1) {
+                    ReportsOverviewTab(onOpenDetail = onOpenDetail)
+                } else {
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(padding)
                 .verticalScroll(rememberScrollState())
                 .padding(24.dp),
         ) {
@@ -294,6 +318,9 @@ fun ReportScreen(
                 Text("管理者に送信", fontWeight = FontWeight.Bold)
             }
         }
+                }
+            }
+        }
     }
 
     if (showConfirm) {
@@ -330,6 +357,61 @@ fun ReportScreen(
                 }
             },
         )
+    }
+}
+
+/**
+ * 今上がっている不具合・要望の報告一覧（概要のみ、作業者全員が閲覧可）。
+ * 既に他の人が報告済みかどうかをその場で確認できるようにするためのタブで、
+ * 対応ステータスの変更などの管理操作は含まない（それらは報告一覧画面（管理者向け）で行う）。
+ */
+@Composable
+private fun ReportsOverviewTab(onOpenDetail: (reportId: Int) -> Unit) {
+    val context = LocalContext.current
+    val container = context.appContainer
+    val feedback = rememberClickFeedback()
+    val canManageReports by container.settings.canManageReportsFlow.collectAsState(initial = false)
+    var loading by remember { mutableStateOf(false) }
+    var error by remember { mutableStateOf<String?>(null) }
+    var reports by remember { mutableStateOf<List<jp.co.nse.worker.data.ReportDto>>(emptyList()) }
+
+    LaunchedEffect(Unit) {
+        loading = true
+        error = null
+        when (val result = container.managerRepository.reports()) {
+            is ApiResult.Success -> reports = result.data
+            is ApiResult.Failure -> error = result.message
+        }
+        loading = false
+    }
+
+    when {
+        loading && reports.isEmpty() -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            CircularProgressIndicator()
+        }
+        error != null && reports.isEmpty() -> Column(
+            modifier = Modifier.fillMaxSize().padding(24.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            Text(error ?: "", color = MaterialTheme.colorScheme.error)
+        }
+        reports.isEmpty() -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            Text("報告はまだありません", color = Color(0xFF9CA3AF), fontWeight = FontWeight.Bold)
+        }
+        else -> LazyColumn(
+            modifier = Modifier.fillMaxSize(),
+            contentPadding = androidx.compose.foundation.layout.PaddingValues(16.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            items(reports, key = { it.id }) { report ->
+                ReportRow(
+                    report,
+                    onClick = if (canManageReports) {
+                        { feedback(); onOpenDetail(report.id) }
+                    } else null,
+                )
+            }
+        }
     }
 }
 

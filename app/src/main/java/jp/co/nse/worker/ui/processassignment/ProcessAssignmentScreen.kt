@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Logout
@@ -127,7 +128,12 @@ class ProcessAssignmentViewModel(private val repo: ManagerRepository) : ViewMode
             when (val result = repo.processAssignments()) {
                 is ApiResult.Success -> {
                     workers = result.data.workers
-                    processMasters = result.data.process_masters.sortedWith(compareBy(JapaneseNameCollator) { it.name })
+                    // サーバー側（工程マスタに登録した読み仮名優先、未設定時は工程名）と
+                    // 並び順を一致させる。工程名の漢字だけでCollatorソートすると
+                    // 読み仮名を考慮したサーバー側の並びとズレることがあるため
+                    processMasters = result.data.process_masters.sortedWith(
+                        compareBy(JapaneseNameCollator) { it.kana?.takeIf { kana -> kana.isNotBlank() } ?: it.name }
+                    )
                     val map = result.data.assignments.associate { a ->
                         (a.user_id to a.process_master_id) to AssignmentState(assigned = true, isDefault = a.is_default)
                     }
@@ -349,7 +355,7 @@ private fun ProcessAssignmentContent(vm: ProcessAssignmentViewModel, feedback: (
             color = Color(0xFF6B7280),
         )
         Text(
-            "◯の作業者の★をクリックすると、その工程の受注が登録された際に自動でその作業者が割り振られます（工程ごとに1人まで）。",
+            "◯の作業者の★をクリックすると、その工程のデフォルト担当者に設定できます（工程ごとに1人まで）。チェックシート画面の「自動割り当て」ボタンを押した際に、未割り当ての工程へこのデフォルト担当者が割り振られます。",
             fontSize = 13.sp,
             color = Color(0xFF6B7280),
             modifier = Modifier.padding(top = 2.dp),
@@ -473,7 +479,21 @@ private fun WorkerAssignRow(
             Text(worker.name.take(1), color = Color.White, fontWeight = FontWeight.Bold, fontSize = 16.sp)
         }
         Spacer(Modifier.width(12.dp))
-        Text(worker.name, fontWeight = FontWeight.SemiBold, fontSize = 16.sp, modifier = Modifier.weight(1f))
+        Box(modifier = Modifier.weight(1f)) {
+            Text(
+                worker.name,
+                fontWeight = FontWeight.SemiBold,
+                fontSize = 16.sp,
+                modifier = if (assigned) {
+                    // 担当◯の作業者は名前をマーカーで線を引いたように強調表示する
+                    Modifier
+                        .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.3f), RoundedCornerShape(4.dp))
+                        .padding(horizontal = 4.dp, vertical = 1.dp)
+                } else {
+                    Modifier
+                },
+            )
+        }
 
         if (assigned) {
             IconButton(

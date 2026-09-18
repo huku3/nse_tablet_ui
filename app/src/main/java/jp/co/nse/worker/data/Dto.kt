@@ -27,9 +27,12 @@ data class UserDto(
     val role: String? = null,
     val permissions: List<String>? = null,
     val color: String? = null,
+    val font_scale: Float? = null,
+    val font_family: String? = null,
+    val avatar_key: String? = null,
 )
 
-// ===== マイページ（メイン色） =====
+// ===== マイページ（メイン色・文字の大きさ・書体） =====
 
 @Serializable
 data class UpdateColorRequest(
@@ -40,6 +43,42 @@ data class UpdateColorRequest(
 data class UpdateColorResponse(
     val ok: Boolean? = null,
     val color: String? = null,
+    val message: String? = null,
+)
+
+@Serializable
+data class UpdateFontScaleRequest(
+    val font_scale: Float,
+)
+
+@Serializable
+data class UpdateFontScaleResponse(
+    val ok: Boolean? = null,
+    val font_scale: Float? = null,
+    val message: String? = null,
+)
+
+@Serializable
+data class UpdateFontFamilyRequest(
+    val font_family: String,
+)
+
+@Serializable
+data class UpdateFontFamilyResponse(
+    val ok: Boolean? = null,
+    val font_family: String? = null,
+    val message: String? = null,
+)
+
+@Serializable
+data class UpdateAvatarRequest(
+    val avatar_key: String,
+)
+
+@Serializable
+data class UpdateAvatarResponse(
+    val ok: Boolean? = null,
+    val avatar_key: String? = null,
     val message: String? = null,
 )
 
@@ -56,6 +95,7 @@ data class LoginUserDto(
     val name: String,
     val color: String? = null,
     val role: String? = null,
+    val avatar_key: String? = null,
 )
 
 @Serializable
@@ -239,6 +279,19 @@ data class UpdateDeadlineRequest(
     val process_deadline_start: String? = null,
 )
 
+/** 受注詳細画面の「編集」でまとめて変更した担当者・工程納期を一括保存するリクエスト */
+@Serializable
+data class BatchAssignRequest(
+    val updates: List<BatchAssignItem>,
+)
+
+@Serializable
+data class BatchAssignItem(
+    val process_id: Int,
+    val worker: String? = null,
+    val process_deadline: String? = null,
+)
+
 /** GET /api/holidays のレスポンス。日付キー（"Y-m-d"）の集合だけ使う */
 @Serializable
 data class HolidayCalendarResponse(
@@ -336,11 +389,14 @@ data class NotificationDataDto(
     val part_name: String? = null,
     val po_number: String? = null,
     val worker: String? = null,
+    val worker_avatar_key: String? = null,
     val reported_by: String? = null,
     val assigned_by: String? = null,
+    val assigned_by_avatar_key: String? = null,
     val process_deadline: String? = null,
     val part_number: String? = null,
     val customer_name: String? = null,
+    val process_names: List<String>? = null,
 )
 
 @Serializable
@@ -413,6 +469,68 @@ data class ShippingBarcodeOrderDto(
     val is_shipping_wait: Boolean = false,
 )
 
+// ===== 受注照会（客先問い合わせ対応） =====
+
+@Serializable
+data class OrderLookupResponse(
+    val orders: List<OrderLookupResultDto> = emptyList(),
+)
+
+@Serializable
+data class OrderLookupResultDto(
+    val id: Int,
+    val customer_name: String? = null,
+    val po_number: String? = null,
+    val customer_order_number: String? = null,
+    val part_number: String? = null,
+    val part_name: String? = null,
+    val quantity: Int? = null,
+    val delivery_date: String? = null,
+    val status: String? = null,
+    val status_label: String? = null,
+    val shipped_at: String? = null,
+    val steps: List<String> = emptyList(),
+    val current_step_index: Int? = null,
+    val total_steps: Int = 0,
+)
+
+// ===== スキャンデータ（コピー機で読み取ったPDF、閲覧のみ） =====
+
+@Serializable
+data class ScanDataListResponse(
+    val files: List<ScanDataFileDto> = emptyList(),
+)
+
+@Serializable
+data class ScanDataFileDto(
+    val name: String,
+    val size: Long,
+    val modified_at: String,
+)
+
+@Serializable
+data class AttachInspectionRequest(
+    val order_id: Int,
+)
+
+@Serializable
+data class InspectionCandidatesResponse(
+    val orders: List<InspectionCandidateOrderDto> = emptyList(),
+)
+
+/** 最終検査が完了しているが、検査記録用図面がまだ取り込まれていない受注（取り込み候補） */
+@Serializable
+data class InspectionCandidateOrderDto(
+    val id: Int,
+    val po_number: String? = null,
+    val customer_order_number: String? = null,
+    val customer_name: String? = null,
+    val part_number: String? = null,
+    val part_name: String? = null,
+    val delivery_date: String? = null,
+    val inspected_at: String? = null,
+)
+
 // ===== 工程管理チェックシート（閲覧専用） =====
 
 @Serializable
@@ -455,7 +573,21 @@ data class CheckSheetOrderDto(
     val has_drawing: Boolean = false,
     val product: CheckSheetProductDto? = null,
     val processes: List<CheckSheetProcessDto> = emptyList(),
+    val inspection_drawings: List<InspectionDrawingDto> = emptyList(),
 )
+
+/** 検査記録用図面（最終検査完了後に取り込む、公開URLでそのまま開ける） */
+@Serializable
+data class InspectionDrawingDto(
+    val id: Int,
+    val url: String,
+    val original_filename: String? = null,
+    val file_type: String? = null,
+    val uploaded_by: String? = null,
+    val created_at: String? = null,
+) {
+    val isImage: Boolean get() = file_type == "image"
+}
 
 @Serializable
 data class CheckSheetProcessDto(
@@ -477,6 +609,7 @@ data class CheckSheetProcessDto(
 data class ProcessMasterLiteDto(
     val id: Int,
     val name: String,
+    val kana: String? = null,
 )
 
 @Serializable
@@ -614,6 +747,7 @@ data class AnnouncementDto(
     val creator_name: String? = null,
     val creator_role_label: String? = null,
     val has_detail_content: Boolean = false,
+    val is_read: Boolean = false,
     val attachments: List<AnnouncementAttachmentDto> = emptyList(),
 )
 

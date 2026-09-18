@@ -3,8 +3,8 @@ package jp.co.nse.worker.data
 import android.content.Context
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
+import androidx.datastore.preferences.core.floatPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
-import androidx.datastore.preferences.core.stringSetPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import jp.co.nse.worker.BuildConfig
 import kotlinx.coroutines.flow.Flow
@@ -14,6 +14,12 @@ private val Context.dataStore by preferencesDataStore(name = "nse_worker_setting
 
 /** 個人の色を選んでいない場合のメイン色（出荷カレンダー画面と同じブルー） */
 private const val DEFAULT_ACCENT_HEX = "#4338CA"
+
+/** 文字の大きさを選んでいない場合の倍率（標準） */
+private const val DEFAULT_FONT_SCALE = 1.0f
+
+/** フォントを選んでいない場合のキー（端末標準フォント） */
+private const val DEFAULT_FONT_FAMILY = "system"
 
 /**
  * 認証トークン・接続先ベースURL・ユーザー名を永続化する。
@@ -32,8 +38,11 @@ class SettingsStore(private val context: Context) {
         val CAN_VIEW_SHIPPING = booleanPreferencesKey("can_view_shipping")
         val CAN_MANAGE_PROCESS_ASSIGNMENTS = booleanPreferencesKey("can_manage_process_assignments")
         val CAN_MANAGE_REPORTS = booleanPreferencesKey("can_manage_reports")
+        val CAN_VIEW_SCAN_DATA = booleanPreferencesKey("can_view_scan_data")
         val ACCENT_COLOR = stringPreferencesKey("accent_color_hex")
-        val SEEN_ANNOUNCEMENT_IDS = stringSetPreferencesKey("seen_announcement_ids")
+        val FONT_SCALE = floatPreferencesKey("font_scale")
+        val FONT_FAMILY = stringPreferencesKey("font_family")
+        val AVATAR_KEY = stringPreferencesKey("avatar_key")
     }
 
     @Volatile
@@ -56,24 +65,40 @@ class SettingsStore(private val context: Context) {
         context.dataStore.data.map { it[Keys.CAN_MANAGE_PROCESS_ASSIGNMENTS] ?: false }
     val canManageReportsFlow: Flow<Boolean> =
         context.dataStore.data.map { it[Keys.CAN_MANAGE_REPORTS] ?: false }
+    val canViewScanDataFlow: Flow<Boolean> =
+        context.dataStore.data.map { it[Keys.CAN_VIEW_SCAN_DATA] ?: false }
 
     /** 現在ログイン中アカウントのマイページ設定色（"#RRGGBB"）。未設定時はアプリの既定色 */
     val accentColorFlow: Flow<String> =
         context.dataStore.data.map { it[Keys.ACCENT_COLOR] ?: DEFAULT_ACCENT_HEX }
 
     /**
-     * ダッシュボードで既に開いた（詳細画面を見た）お知らせのID集合。端末内のみで完結する
-     * 既読管理で、管理者側への報告は行わない。共有端末で別の作業者に切り替わったときに
-     * 前の人の既読状態を引き継がないよう、ログアウト時にクリアする（clearToken参照）
+     * 現在ログイン中アカウントのマイページ設定の文字の大きさ倍率。メイン色と同様に
+     * サーバー（users.font_scale）に保存され、どの端末でログインしても引き継がれる
      */
-    val seenAnnouncementIdsFlow: Flow<Set<String>> =
-        context.dataStore.data.map { it[Keys.SEEN_ANNOUNCEMENT_IDS] ?: emptySet() }
+    val fontScaleFlow: Flow<Float> =
+        context.dataStore.data.map { it[Keys.FONT_SCALE] ?: DEFAULT_FONT_SCALE }
 
-    suspend fun markAnnouncementSeen(announcementId: Int) {
-        context.dataStore.edit {
-            val current = it[Keys.SEEN_ANNOUNCEMENT_IDS] ?: emptySet()
-            it[Keys.SEEN_ANNOUNCEMENT_IDS] = current + announcementId.toString()
-        }
+    /** マイページで文字の大きさを変更した直後、再ログインなしで反映するための更新 */
+    suspend fun saveFontScale(scale: Float) {
+        context.dataStore.edit { it[Keys.FONT_SCALE] = scale }
+    }
+
+    /** 現在ログイン中アカウントのマイページ設定の書体。メイン色と同様にサーバーに保存される */
+    val fontFamilyFlow: Flow<String> =
+        context.dataStore.data.map { it[Keys.FONT_FAMILY] ?: DEFAULT_FONT_FAMILY }
+
+    /** マイページで書体を変更した直後、再ログインなしで反映するための更新 */
+    suspend fun saveFontFamily(key: String) {
+        context.dataStore.edit { it[Keys.FONT_FAMILY] = key }
+    }
+
+    /** 現在ログイン中アカウントのマイページアイコン（プリセットの動物イラスト）キー。未選択時はnull */
+    val avatarKeyFlow: Flow<String?> = context.dataStore.data.map { it[Keys.AVATAR_KEY] }
+
+    /** マイページでアイコンを変更した直後、再ログインなしで反映するための更新 */
+    suspend fun saveAvatarKey(key: String) {
+        context.dataStore.edit { it[Keys.AVATAR_KEY] = key }
     }
 
     suspend fun saveToken(
@@ -85,7 +110,11 @@ class SettingsStore(private val context: Context) {
         canViewShipping: Boolean,
         canManageProcessAssignments: Boolean,
         canManageReports: Boolean,
+        canViewScanData: Boolean,
         accentColorHex: String?,
+        fontScale: Float?,
+        fontFamily: String?,
+        avatarKey: String?,
     ) {
         cachedToken = token
         context.dataStore.edit {
@@ -97,7 +126,11 @@ class SettingsStore(private val context: Context) {
             it[Keys.CAN_VIEW_SHIPPING] = canViewShipping
             it[Keys.CAN_MANAGE_PROCESS_ASSIGNMENTS] = canManageProcessAssignments
             it[Keys.CAN_MANAGE_REPORTS] = canManageReports
+            it[Keys.CAN_VIEW_SCAN_DATA] = canViewScanData
             it[Keys.ACCENT_COLOR] = accentColorHex ?: DEFAULT_ACCENT_HEX
+            it[Keys.FONT_SCALE] = fontScale ?: DEFAULT_FONT_SCALE
+            it[Keys.FONT_FAMILY] = fontFamily ?: DEFAULT_FONT_FAMILY
+            if (avatarKey != null) it[Keys.AVATAR_KEY] = avatarKey else it.remove(Keys.AVATAR_KEY)
         }
     }
 
@@ -117,7 +150,8 @@ class SettingsStore(private val context: Context) {
             it.remove(Keys.CAN_VIEW_SHIPPING)
             it.remove(Keys.CAN_MANAGE_PROCESS_ASSIGNMENTS)
             it.remove(Keys.CAN_MANAGE_REPORTS)
-            it.remove(Keys.SEEN_ANNOUNCEMENT_IDS)
+            it.remove(Keys.CAN_VIEW_SCAN_DATA)
+            it.remove(Keys.AVATAR_KEY)
             // ACCENT_COLORはここでは消さない。消すとMainActivityが購読しているaccentColorFlowが
             // 即座にデフォルト色へ変わり、ログアウトの瞬間だけテーマ色が一瞬切り替わって見える。
             // 次にログインした人の色はsaveToken()が同じトランザクションで必ず上書きするため、

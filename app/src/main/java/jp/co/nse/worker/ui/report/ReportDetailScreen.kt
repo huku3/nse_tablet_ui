@@ -11,14 +11,18 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Logout
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CenterAlignedTopAppBar
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -56,6 +60,7 @@ import jp.co.nse.worker.ui.components.HeaderOverflowMenu
 import jp.co.nse.worker.ui.components.HeaderUserLabel
 import jp.co.nse.worker.ui.components.NotificationBell
 import jp.co.nse.worker.ui.components.rememberCurrentUserName
+import jp.co.nse.worker.ui.theme.Red500
 import jp.co.nse.worker.util.rememberClickFeedback
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -82,6 +87,8 @@ fun ReportDetailScreen(
     var loadingScreenshot by remember { mutableStateOf(false) }
     var screenshotError by remember { mutableStateOf<String?>(null) }
     var statusUpdating by remember { mutableStateOf(false) }
+    var showDeleteConfirm by remember { mutableStateOf(false) }
+    var deleting by remember { mutableStateOf(false) }
 
     fun loadScreenshot(id: Int) {
         loadingScreenshot = true
@@ -134,10 +141,31 @@ fun ReportDetailScreen(
         }
     }
 
+    fun deleteReport() {
+        if (deleting) return
+        scope.launch {
+            deleting = true
+            when (val result = container.managerRepository.deleteReport(reportId)) {
+                is ApiResult.Success -> { showDeleteConfirm = false; onBack() }
+                is ApiResult.Failure -> { showDeleteConfirm = false; error = result.message }
+            }
+            deleting = false
+        }
+    }
+
     Scaffold(
         topBar = {
             CenterAlignedTopAppBar(
-                title = { HeaderTitle("報告詳細") },
+                title = {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        HeaderTitle("報告詳細")
+                        if (report != null) {
+                            IconButton(onClick = { feedback(); showDeleteConfirm = true }, modifier = Modifier.size(36.dp)) {
+                                Icon(Icons.Filled.Delete, contentDescription = "削除", tint = MaterialTheme.colorScheme.onPrimary)
+                            }
+                        }
+                    }
+                },
                 navigationIcon = {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         IconButton(onClick = { feedback(); onBack() }) {
@@ -277,6 +305,24 @@ fun ReportDetailScreen(
                     }
                 }
             }
+        }
+
+        if (showDeleteConfirm) {
+            AlertDialog(
+                onDismissRequest = { if (!deleting) showDeleteConfirm = false },
+                title = { Text("削除の確認", fontWeight = FontWeight.ExtraBold) },
+                text = { Text("この報告を削除します。元に戻せません。よろしいですか？") },
+                confirmButton = {
+                    Button(
+                        onClick = { deleteReport() },
+                        enabled = !deleting,
+                        colors = ButtonDefaults.buttonColors(containerColor = Red500),
+                    ) { Text("削除する", fontWeight = FontWeight.Bold) }
+                },
+                dismissButton = {
+                    TextButton(onClick = { showDeleteConfirm = false }, enabled = !deleting) { Text("キャンセル") }
+                },
+            )
         }
     }
 }

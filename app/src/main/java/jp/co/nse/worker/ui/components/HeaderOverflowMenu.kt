@@ -4,10 +4,14 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.FactCheck
-import androidx.compose.material.icons.filled.AccountCircle
+import androidx.compose.material.icons.filled.BarChart
 import androidx.compose.material.icons.filled.Dashboard
 import androidx.compose.material.icons.filled.Feedback
+import androidx.compose.material.icons.filled.Description
+import androidx.compose.material.icons.filled.Inventory2
 import androidx.compose.material.icons.filled.Menu
+import androidx.compose.material.icons.filled.Palette
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -49,8 +53,12 @@ import jp.co.nse.worker.util.rememberClickFeedback
 @Composable
 fun HeaderOverflowMenu(
     showMyPage: Boolean = true,
+    showSettings: Boolean = true,
     showDashboard: Boolean = true,
     showProcessAssignments: Boolean = true,
+    showInventory: Boolean = true,
+    showOrderInquiry: Boolean = true,
+    showScanData: Boolean = true,
     showReport: Boolean = true,
     showReportList: Boolean = true,
     currentHomeTab: String? = null,
@@ -61,6 +69,7 @@ fun HeaderOverflowMenu(
     var expanded by remember { mutableStateOf(false) }
     val canManageProcessAssignments by context.appContainer.settings.canManageProcessAssignmentsFlow.collectAsState(initial = false)
     val canManageReports by context.appContainer.settings.canManageReportsFlow.collectAsState(initial = false)
+    val canViewScanData by context.appContainer.settings.canViewScanDataFlow.collectAsState(initial = false)
     val canAssign by context.appContainer.settings.canAssignFlow.collectAsState(initial = false)
     val canViewOrders by context.appContainer.settings.canViewOrdersFlow.collectAsState(initial = false)
     val canViewShipping by context.appContainer.settings.canViewShippingFlow.collectAsState(initial = false)
@@ -92,9 +101,16 @@ fun HeaderOverflowMenu(
             if (homeTabs.isNotEmpty()) HorizontalDivider()
             if (showMyPage) {
                 DropdownMenuItem(
-                    text = { Text("マイページ") },
-                    leadingIcon = { Icon(Icons.Filled.AccountCircle, contentDescription = null) },
+                    text = { Text("作業実績") },
+                    leadingIcon = { Icon(Icons.Filled.BarChart, contentDescription = null) },
                     onClick = { expanded = false; feedback(); context.appContainer.openMyPage?.invoke() },
+                )
+            }
+            if (showSettings) {
+                DropdownMenuItem(
+                    text = { Text("設定") },
+                    leadingIcon = { Icon(Icons.Filled.Palette, contentDescription = null) },
+                    onClick = { expanded = false; feedback(); context.appContainer.openSettings?.invoke() },
                 )
             }
             if (showDashboard) {
@@ -109,6 +125,31 @@ fun HeaderOverflowMenu(
                     text = { Text("担当工程マスタ") },
                     leadingIcon = { Icon(Icons.Filled.Settings, contentDescription = null) },
                     onClick = { expanded = false; feedback(); context.appContainer.openProcessAssignments?.invoke() },
+                )
+            }
+            // 在庫は受注一覧権限（orders.view、閲覧のみ）か割り当て権限（checksheet.assign_worker、
+            // 閲覧＋入荷・引当等の操作）のどちらかを持つアカウントに表示する
+            if (showInventory && (canViewOrders || canAssign)) {
+                DropdownMenuItem(
+                    text = { Text("在庫") },
+                    leadingIcon = { Icon(Icons.Filled.Inventory2, contentDescription = null) },
+                    onClick = { expanded = false; feedback(); context.appContainer.openInventory?.invoke() },
+                )
+            }
+            // 受注照会（客先問い合わせ対応）も在庫と同じく、受注一覧権限か割り当て権限の
+            // どちらかを持つアカウントに表示する
+            if (showOrderInquiry && (canViewOrders || canAssign)) {
+                DropdownMenuItem(
+                    text = { Text("受注照会") },
+                    leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null) },
+                    onClick = { expanded = false; feedback(); context.appContainer.openOrderInquiry?.invoke() },
+                )
+            }
+            if (showScanData && canViewScanData) {
+                DropdownMenuItem(
+                    text = { Text("スキャンデータ") },
+                    leadingIcon = { Icon(Icons.Filled.Description, contentDescription = null) },
+                    onClick = { expanded = false; feedback(); context.appContainer.openScanData?.invoke() },
                 )
             }
             if (showReport) {

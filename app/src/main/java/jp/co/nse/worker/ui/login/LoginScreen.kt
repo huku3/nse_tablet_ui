@@ -75,6 +75,7 @@ import jp.co.nse.worker.ui.theme.Green500
 import jp.co.nse.worker.ui.theme.Green50
 import jp.co.nse.worker.ui.theme.Green600
 import jp.co.nse.worker.ui.theme.Green700
+import jp.co.nse.worker.ui.theme.avatarDrawableForKey
 import jp.co.nse.worker.util.rememberClickFeedback
 import kotlinx.coroutines.launch
 
@@ -408,16 +409,25 @@ private fun AccountTile(user: LoginUserDto, selected: Boolean, onClick: () -> Un
             .padding(14.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
+        val avatarDrawable = avatarDrawableForKey(user.avatar_key)
         Box(
             modifier = Modifier.size(46.dp).clip(CircleShape).background(avatarBrush),
             contentAlignment = Alignment.Center,
         ) {
-            Text(
-                user.name.take(1),
-                color = contrastTextColor(avatarColor),
-                fontWeight = FontWeight.Bold,
-                fontSize = 20.sp,
-            )
+            if (avatarDrawable != null) {
+                Image(
+                    painter = painterResource(avatarDrawable),
+                    contentDescription = null,
+                    modifier = Modifier.size(36.dp),
+                )
+            } else {
+                Text(
+                    user.name.take(1),
+                    color = contrastTextColor(avatarColor),
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 20.sp,
+                )
+            }
         }
         Spacer(Modifier.size(12.dp))
         Column(Modifier.weight(1f)) {
@@ -477,16 +487,25 @@ private fun EmployeeNumberPanel(
             ) {
                 if (user != null) {
                     val avatarColor = parseHexColor(user.color, Green600)
+                    val avatarDrawable = avatarDrawableForKey(user.avatar_key)
                     Box(
                         modifier = Modifier.size(40.dp).background(avatarColor, CircleShape),
                         contentAlignment = Alignment.Center,
                     ) {
-                        Text(
-                            user.name.take(1),
-                            color = contrastTextColor(avatarColor),
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 18.sp,
-                        )
+                        if (avatarDrawable != null) {
+                            Image(
+                                painter = painterResource(avatarDrawable),
+                                contentDescription = null,
+                                modifier = Modifier.size(32.dp),
+                            )
+                        } else {
+                            Text(
+                                user.name.take(1),
+                                color = contrastTextColor(avatarColor),
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 18.sp,
+                            )
+                        }
                     }
                     Spacer(Modifier.size(12.dp))
                     Text(user.name, fontWeight = FontWeight.Bold, fontSize = 18.sp, color = Gray800, modifier = Modifier.weight(1f))

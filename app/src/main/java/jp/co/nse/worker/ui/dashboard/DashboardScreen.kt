@@ -90,7 +90,14 @@ import kotlinx.coroutines.launch
 import java.time.LocalDate
 
 /** ダッシュボードに表示する「本日の担当作業」件数サマリー */
-data class TaskSummary(val waiting: Int = 0, val inProgress: Int = 0, val completed: Int = 0)
+data class TaskSummary(
+    val waiting: Int = 0,
+    val waitingOrders: Int = 0,
+    val inProgress: Int = 0,
+    val inProgressOrders: Int = 0,
+    val completed: Int = 0,
+    val completedOrders: Int = 0,
+)
 
 /** 「本日の担当作業」カードで、どの件数をタップして受注テーブルを開いているか */
 enum class TaskStatCategory { WAITING, IN_PROGRESS, COMPLETED }
@@ -132,6 +139,13 @@ fun staffLeaveTargetDates(today: LocalDate, holidays: Set<String>, overrides: Se
     filterStaffLeaveDates((0..29L).map { today.plusDays(it) }, holidays, overrides)
 
 /**
+ * 「材料入荷状況」「出荷予定」カードの表示対象日。お休み状況カードと同じ本日から30日間のうち、
+ * 実際に稼働する日（土日・休日を除く）だけを対象にする。
+ */
+fun materialAndShippingTargetDates(today: LocalDate, holidays: Set<String>, overrides: Set<String>): List<LocalDate> =
+    (0..29L).map { today.plusDays(it) }.filter { DateUtil.isWorkingDay(it, holidays, overrides) }
+
+/**
  * 休暇1件分の表示ラベル。Web版の出荷カレンダー「休暇予定」パネルと同じ書式
  * （例：「佐藤（有給休暇・半日）」）にする。
  */
@@ -166,16 +180,59 @@ class DashboardViewModel(
     private var activeTasks: List<jp.co.nse.worker.data.TaskItemDto> = emptyList()
     private var completedTasks: List<jp.co.nse.worker.data.CompletedTaskDto> = emptyList()
 
-    fun taskRowsFor(category: TaskStatCategory): List<OrderTableRow> = when (category) {
-        TaskStatCategory.WAITING -> activeTasks.filter { it.status == WorkStatus.WAITING }.map { it.order.toTableRow() }
-        TaskStatCategory.IN_PROGRESS -> activeTasks.filter { it.status != WorkStatus.WAITING }.map { it.order.toTableRow() }
-        TaskStatCategory.COMPLETED -> completedTasks.map { it.order.toTableRow() }
+    /**
+     * 「担当工程状況」カードの展開表示。同じ受注で複数工程を担当していても受注ごとに1行にまとめ、
+     * その受注の全工程（[jp.co.nse.worker.data.TaskItemDto.all_processes]）を横並びのチップで見せ、
+     * 自分が担当している工程だけ[ProcessChip.isMine]をtrueにする。
+     * 完了タブは[jp.co.nse.worker.data.CompletedTaskDto]に全工程の情報が無いため、
+     * 自分が完了させた工程だけのチップになる（他工程は表示できない）。
+     */
+    fun taskPipelineRowsFor(category: TaskStatCategory): List<OrderPipelineRow> {
+        if (category == TaskStatCategory.COMPLETED) {
+            return completedTasks.map { t ->
+                OrderPipelineRow(
+                    orderId = t.order.id,
+                    partName = t.order.part_name,
+                    poNumber = t.order.po_number,
+                    quantity = t.order.quantity,
+                    status = t.order.status,
+                    processes = listOf(ProcessChip(t.process_name, isMine = true)),
+                )
+            }
+        }
+        val tasks = when (category) {
+            TaskStatCategory.WAITING -> activeTasks.filter { it.status == WorkStatus.WAITING }
+            else -> activeTasks.filter { it.status != WorkStatus.WAITING }
+        }
+        return tasks.groupBy { it.order.id }.values.map { group ->
+            val first = group.first()
+            val mineIds = group.map { it.id }.toSet()
+            val allProcesses = first.all_processes.ifEmpty {
+                group.map { jp.co.nse.worker.data.ProcessBriefDto(it.id, it.process_name, it.status, 0, it.worker, it.process_deadline) }
+            }
+            OrderPipelineRow(
+                orderId = first.order.id,
+                partName = first.order.part_name,
+                poNumber = first.order.po_number,
+                quantity = first.order.quantity,
+                status = first.order.status,
+                processes = allProcesses.sortedBy { it.sort_order }.map { p ->
+                    ProcessChip(p.process_name, isMine = p.id in mineIds)
+                },
+            )
+        }
     }
 
     fun materialRowsFor(date: LocalDate): List<OrderTableRow> =
         materialWaitingOrders
             .filter { DateUtil.parse(it.material_arrived_at) == date }
             .map { it.toTableRow() }
+
+    /** 「工程納期」カードで日付をタップしたときに、その日が工程納期の自分の担当工程を一覧表示する */
+    fun deadlineRowsFor(date: LocalDate): List<OrderTableRow> =
+        activeTasks
+            .filter { DateUtil.parse(it.process_deadline) == date }
+            .map { it.order.toTableRow().copy(processName = it.process_name) }
 
     fun shippingRowsFor(date: LocalDate): List<OrderTableRow> =
         shippingDays.firstOrNull { DateUtil.parse(it.date) == date }
@@ -210,10 +267,17 @@ class DashboardViewModel(
             is ApiResult.Success -> {
                 activeTasks = result.data.active
                 completedTasks = result.data.completed_today
+                val waitingTasks = result.data.active.filter { it.status == WorkStatus.WAITING }
+                val inProgressTasks = result.data.active.filter { it.status != WorkStatus.WAITING }
+                // 同じ受注に複数工程を担当していると工程数ベースでは重複カウントされるため、
+                // 受注ID基準で数え直した件数も併せて出す
                 taskSummary = TaskSummary(
-                    waiting = result.data.active.count { it.status == WorkStatus.WAITING },
-                    inProgress = result.data.active.count { it.status != WorkStatus.WAITING },
+                    waiting = waitingTasks.size,
+                    waitingOrders = waitingTasks.map { it.order.id }.distinct().size,
+                    inProgress = inProgressTasks.size,
+                    inProgressOrders = inProgressTasks.map { it.order.id }.distinct().size,
                     completed = result.data.completed_today.size,
+                    completedOrders = result.data.completed_today.map { it.order.id }.distinct().size,
                 )
                 // 完了済みは納期を気にする必要がないため、未完了（active）の担当工程だけを対象にする
                 val today = LocalDate.now()
@@ -229,7 +293,7 @@ class DashboardViewModel(
 
     /**
      * 材料待ち（status="material_waiting"）と材料到着日（status="material_arrived_date"）の
-     * 受注を、材料到着予定日（material_arrived_at）が直近10稼働日（本日＋先の9稼働日）の
+     * 受注を、材料到着予定日（material_arrived_at）がお休み状況カードと同じ直近30日間の稼働日の
      * どれに当たるかで件数集計する。生産管理システム側はmaterial_arrived_atが今日以前になった
      * 時点で自動的にmaterial_waiting→material_arrived_dateへステータスを切り替えるため、
      * material_waitingだけを見ると「本日到着予定」の分がこの切り替えで抜け落ちてしまう。
@@ -244,7 +308,7 @@ class DashboardViewModel(
         val today = LocalDate.now()
         val holidays = mutableSetOf<String>()
         val overrides = mutableSetOf<String>()
-        setOf(DateUtil.fiscalYearOf(today), DateUtil.fiscalYearOf(today.plusDays(21))).forEach { fy ->
+        setOf(DateUtil.fiscalYearOf(today), DateUtil.fiscalYearOf(today.plusDays(29))).forEach { fy ->
             when (val result = managerRepo.holidayCalendar(fy)) {
                 is ApiResult.Success -> {
                     holidays += result.data.holidays
@@ -253,12 +317,7 @@ class DashboardViewModel(
                 is ApiResult.Failure -> {}
             }
         }
-        val targetDates = mutableListOf<LocalDate>()
-        var cursor = today
-        while (targetDates.size < 10) {
-            if (DateUtil.isWorkingDay(cursor, holidays, overrides)) targetDates += cursor
-            cursor = cursor.plusDays(1)
-        }
+        val targetDates = materialAndShippingTargetDates(today, holidays, overrides)
         val waiting = orders.filter { it.status == "material_waiting" || it.status == "material_arrived_date" }
         materialWaitingOrders = waiting
         materialWaitingSummary = targetDates.map { date ->
@@ -268,8 +327,8 @@ class DashboardViewModel(
     }
 
     /**
-     * 直近10稼働日分の出荷予定件数。休日マスタ（休日・例外稼働日）を参照して、
-     * 土日・休日を除いた実際の稼働日だけを対象にする。「明日」「明後日」という表記は
+     * お休み状況カードと同じ直近30日間の稼働日分の出荷予定件数。休日マスタ（休日・例外稼働日）を
+     * 参照して、土日・休日を除いた実際の稼働日だけを対象にする。「明日」「明後日」という表記は
      * 休日等で実際の稼働日とずれて誤解を招くため、日付そのものをラベルに使う。
      * 横スクロールで全日分を表示する。
      */
@@ -277,7 +336,7 @@ class DashboardViewModel(
         val today = LocalDate.now()
         val holidays = mutableSetOf<String>()
         val overrides = mutableSetOf<String>()
-        setOf(DateUtil.fiscalYearOf(today), DateUtil.fiscalYearOf(today.plusDays(21))).forEach { fy ->
+        setOf(DateUtil.fiscalYearOf(today), DateUtil.fiscalYearOf(today.plusDays(29))).forEach { fy ->
             when (val result = managerRepo.holidayCalendar(fy)) {
                 is ApiResult.Success -> {
                     holidays += result.data.holidays
@@ -287,12 +346,7 @@ class DashboardViewModel(
             }
         }
 
-        val targetDates = mutableListOf<LocalDate>()
-        var cursor = today
-        while (targetDates.size < 10) {
-            if (DateUtil.isWorkingDay(cursor, holidays, overrides)) targetDates += cursor
-            cursor = cursor.plusDays(1)
-        }
+        val targetDates = materialAndShippingTargetDates(today, holidays, overrides)
 
         val months = targetDates.map { java.time.YearMonth.from(it) }.distinct()
         val days = mutableListOf<jp.co.nse.worker.data.ShippingCalendarDayDto>()
@@ -369,7 +423,6 @@ fun DashboardScreen(
     val today = remember { LocalDate.now() }
 
     val canViewShipping by container.settings.canViewShippingFlow.collectAsState(initial = false)
-    val seenAnnouncementIds by container.settings.seenAnnouncementIdsFlow.collectAsState(initial = emptySet())
 
     val vm: DashboardViewModel = viewModel(
         factory = viewModelFactory {
@@ -436,10 +489,10 @@ fun DashboardScreen(
                     shippingSummary = if (canViewShipping) vm.shippingSummary else null,
                     staffLeaveDays = vm.staffLeaveDays,
                     announcements = vm.announcements,
-                    seenAnnouncementIds = seenAnnouncementIds,
-                    taskRowsFor = vm::taskRowsFor,
+                    taskPipelineRowsFor = vm::taskPipelineRowsFor,
                     materialRowsFor = vm::materialRowsFor,
                     shippingRowsFor = vm::shippingRowsFor,
+                    deadlineRowsFor = vm::deadlineRowsFor,
                     onContinue = onContinue,
                     onOpenCheckSheet = onOpenCheckSheet,
                     onOpenStaffLeaveCalendar = onOpenStaffLeaveCalendar,
@@ -478,10 +531,10 @@ private fun DashboardContent(
     shippingSummary: List<ShippingDaySummary>?,
     staffLeaveDays: List<StaffLeaveDaySummary>,
     announcements: List<AnnouncementDto>,
-    seenAnnouncementIds: Set<String>,
-    taskRowsFor: (TaskStatCategory) -> List<OrderTableRow>,
+    taskPipelineRowsFor: (TaskStatCategory) -> List<OrderPipelineRow>,
     materialRowsFor: (LocalDate) -> List<OrderTableRow>,
     shippingRowsFor: (LocalDate) -> List<OrderTableRow>,
+    deadlineRowsFor: (LocalDate) -> List<OrderTableRow>,
     onContinue: () -> Unit,
     onOpenCheckSheet: (orderId: Int) -> Unit = {},
     onOpenStaffLeaveCalendar: (LocalDate) -> Unit = {},
@@ -492,6 +545,7 @@ private fun DashboardContent(
     var materialExpanded by remember { mutableStateOf(false) }
     var shippingExpanded by remember { mutableStateOf(false) }
     var selectedTaskCategory by remember { mutableStateOf<TaskStatCategory?>(null) }
+    var selectedDeadlineDate by remember { mutableStateOf<LocalDate?>(null) }
 
     LazyColumn(
         state = listState,
@@ -504,9 +558,9 @@ private fun DashboardContent(
                 val dateSentence = "${today.monthValue}月${today.dayOfMonth}日${DateUtil.weekdayKanji(today)}曜日。"
                 Text(
                     if (flower != null) {
-                        "こんにちは、${userName}さん！$dateSentence\n今日の花は${flower.name}、花言葉は${flower.meaning}です。"
+                        "Hello、${userName}さん！$dateSentence\n今日の花は${flower.name}、花言葉は${flower.meaning}です。"
                     } else {
-                        "こんにちは、${userName}さん！$dateSentence"
+                        "Hello、${userName}さん！$dateSentence"
                     },
                     fontWeight = FontWeight.ExtraBold,
                     fontSize = 26.sp,
@@ -518,11 +572,12 @@ private fun DashboardContent(
             }
         }
 
-        // 1度詳細を開いたお知らせは、次からダッシュボードでは目立たせない（端末内のみの既読管理）。
+        // 1度詳細を開いたお知らせは、次からダッシュボードでは目立たせない（アカウントごとに
+        // サーバー側で既読管理しているため、別の端末・再ログイン後も引き継がれる）。
         // 未読が残っていればそれぞれ個別のカードで表示し、タップで直接詳細を開く。
         // 未読が無く、表示中のお知らせ自体はある場合は、控えめな一覧行の形でだけ残しておく。
         // 表示中のお知らせが1件も無ければ、これまで通り履歴を確認できるプレースホルダーを出す。
-        val unseenAnnouncements = announcements.filter { it.id.toString() !in seenAnnouncementIds }
+        val unseenAnnouncements = announcements.filter { !it.is_read }
         if (unseenAnnouncements.isNotEmpty()) {
             items(unseenAnnouncements, key = { "announcement-${it.id}" }) { announcement ->
                 AnnouncementCard(
@@ -552,11 +607,12 @@ private fun DashboardContent(
         }
 
         item(key = "task-summary") {
-            DashboardCard("本日の担当作業") {
+            DashboardCard("担当工程状況") {
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                     StatBlock(
                         "未着手",
                         taskSummary.waiting,
+                        taskSummary.waitingOrders,
                         Color(0xFF9CA3AF),
                         selected = selectedTaskCategory == TaskStatCategory.WAITING,
                         onClick = {
@@ -567,6 +623,7 @@ private fun DashboardContent(
                     StatBlock(
                         "進行中",
                         taskSummary.inProgress,
+                        taskSummary.inProgressOrders,
                         MaterialTheme.colorScheme.primary,
                         selected = selectedTaskCategory == TaskStatCategory.IN_PROGRESS,
                         onClick = {
@@ -577,6 +634,7 @@ private fun DashboardContent(
                     StatBlock(
                         "完了",
                         taskSummary.completed,
+                        taskSummary.completedOrders,
                         Color(0xFF16A34A),
                         selected = selectedTaskCategory == TaskStatCategory.COMPLETED,
                         onClick = {
@@ -587,8 +645,8 @@ private fun DashboardContent(
                 }
                 selectedTaskCategory?.let { category ->
                     Spacer(Modifier.height(8.dp))
-                    OrderInlineTable(
-                        taskRowsFor(category),
+                    OrderPipelineTable(
+                        taskPipelineRowsFor(category),
                         onRowClick = { orderId -> feedback(); onOpenCheckSheet(orderId) },
                     )
                 }
@@ -596,9 +654,23 @@ private fun DashboardContent(
                     Spacer(Modifier.height(14.dp))
                     HorizontalDivider(color = Color(0xFFF3F4F6))
                     Spacer(Modifier.height(12.dp))
-                    Text("工程納期", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color(0xFF9CA3AF))
+                    Text("工程納期（タップすると受注・工程を表示）", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color(0xFF9CA3AF))
                     Spacer(Modifier.height(8.dp))
-                    DeadlineCountRow(deadlineSummary)
+                    DeadlineCountRow(
+                        deadlineSummary,
+                        selectedDate = selectedDeadlineDate,
+                        onSelectDate = { date ->
+                            feedback()
+                            selectedDeadlineDate = if (selectedDeadlineDate == date) null else date
+                        },
+                    )
+                    selectedDeadlineDate?.let { date ->
+                        Spacer(Modifier.height(8.dp))
+                        OrderInlineTable(
+                            deadlineRowsFor(date),
+                            onRowClick = { orderId -> feedback(); onOpenCheckSheet(orderId) },
+                        )
+                    }
                 }
             }
         }
@@ -638,7 +710,7 @@ private fun DashboardContent(
                 DashboardCard("出荷予定") {
                     DaySummaryToggle(
                         days = days.map { it.date to it.count },
-                        highlightNonZero = false,
+                        highlightNonZero = true,
                         expanded = shippingExpanded,
                         onToggle = { feedback(); shippingExpanded = !shippingExpanded },
                     )
@@ -888,15 +960,21 @@ private fun StaffLeaveCalendarRow(days: List<StaffLeaveDaySummary>, onSelectDate
 
 /** 「本日の担当作業」カードの、本日・明日・明後日それぞれの工程納期件数（タップ不要の単純表示）。 */
 @Composable
-private fun DeadlineCountRow(days: List<TaskDeadlineDaySummary>) {
+private fun DeadlineCountRow(
+    days: List<TaskDeadlineDaySummary>,
+    selectedDate: LocalDate?,
+    onSelectDate: (LocalDate) -> Unit,
+) {
     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         days.forEach { day ->
+            val selected = day.count > 0 && day.date == selectedDate
             val color = if (day.count > 0) Color(0xFFDC2626) else MaterialTheme.colorScheme.onSurface
             Column(
                 modifier = Modifier
                     .weight(1f)
                     .clip(RoundedCornerShape(12.dp))
-                    .background(Color(0xFFF3F4F6))
+                    .background(if (selected) color.copy(alpha = 0.12f) else Color(0xFFF3F4F6))
+                    .let { if (day.count > 0) it.clickable { onSelectDate(day.date) } else it }
                     .padding(vertical = 10.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
@@ -1006,7 +1084,14 @@ private fun MultiDayOrderTables(
 }
 
 @Composable
-private fun StatBlock(label: String, count: Int, color: Color, selected: Boolean = false, onClick: (() -> Unit)? = null) {
+private fun StatBlock(
+    label: String,
+    count: Int,
+    orderCount: Int,
+    color: Color,
+    selected: Boolean = false,
+    onClick: (() -> Unit)? = null,
+) {
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
         modifier = Modifier
@@ -1015,7 +1100,15 @@ private fun StatBlock(label: String, count: Int, color: Color, selected: Boolean
             .background(if (selected) color.copy(alpha = 0.12f) else Color.Transparent)
             .padding(horizontal = 12.dp, vertical = 6.dp),
     ) {
-        Text("$count", fontWeight = FontWeight.ExtraBold, fontSize = 22.sp, color = color)
+        Row(verticalAlignment = Alignment.Bottom) {
+            Text("$count", fontWeight = FontWeight.ExtraBold, fontSize = 22.sp, color = color)
+            Text("件", fontWeight = FontWeight.Bold, fontSize = 12.sp, color = color, modifier = Modifier.padding(bottom = 3.dp))
+        }
         Text(label, fontSize = 12.sp, color = Color(0xFF6B7280))
+        // 同じ受注に複数工程を担当している場合、工程数だけだと受注が水増しされて見えるため、
+        // 重複を除いた受注件数も小さく添える（工程数と一致するときはわざわざ表示しない）
+        if (orderCount != count) {
+            Text("（$orderCount 受注）", fontSize = 10.sp, color = Color(0xFF9CA3AF))
+        }
     }
 }

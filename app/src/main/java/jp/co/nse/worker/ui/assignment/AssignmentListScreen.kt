@@ -479,7 +479,8 @@ private fun StatusFilterRow(
     }
 }
 
-private val StatusFilterCardWidth = 108.dp
+// 文字を特大にしても「材料到着済み」等が見切れないよう、108dpから広げている
+private val StatusFilterCardWidth = 128.dp
 
 @Composable
 private fun StatusFilterCard(
@@ -514,7 +515,6 @@ private fun StatusFilterCard(
                 fontSize = 11.sp,
                 color = labelColor,
                 maxLines = 1,
-                softWrap = false,
                 textAlign = androidx.compose.ui.text.style.TextAlign.Center,
                 modifier = Modifier.fillMaxWidth(),
             )

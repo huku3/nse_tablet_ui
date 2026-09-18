@@ -4,6 +4,8 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -21,6 +23,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.FactCheck
 import androidx.compose.material.icons.automirrored.filled.Logout
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Description
@@ -54,6 +57,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -68,8 +72,10 @@ import jp.co.nse.worker.data.ApiResult
 import jp.co.nse.worker.data.AssignProcessDto
 import jp.co.nse.worker.data.CheckSheetOrderDto
 import jp.co.nse.worker.data.CheckSheetProcessDto
+import jp.co.nse.worker.data.InspectionDrawingDto
 import jp.co.nse.worker.data.OrderAssignDto
 import jp.co.nse.worker.data.OrderType
+import jp.co.nse.worker.data.ScanDataFileDto
 import jp.co.nse.worker.data.WorkStatus
 import jp.co.nse.worker.ui.assignment.DeadlineCalendarDialog
 import jp.co.nse.worker.ui.assignment.WorkerPickerDialog
@@ -120,6 +126,8 @@ fun CheckSheetScreen(
     var deadlineProcess by remember { mutableStateOf<CheckSheetProcessDto?>(null) }
     var showMarkArrivedConfirm by remember { mutableStateOf(false) }
     var printing by remember { mutableStateOf(false) }
+    var showAttachInspectionDialog by remember { mutableStateOf(false) }
+    var showInspectionDrawingsViewer by remember { mutableStateOf(false) }
 
     fun printDrawing(processId: Int) {
         if (printing) return
@@ -209,6 +217,8 @@ fun CheckSheetScreen(
                         val processId = order.processes.minByOrNull { it.sort_order }?.id ?: 0
                         printDrawing(processId)
                     },
+                    onAttachInspectionDrawing = { showAttachInspectionDialog = true },
+                    onViewInspectionDrawings = { showInspectionDrawingsViewer = true },
                 )
             }
         }
@@ -280,6 +290,211 @@ fun CheckSheetScreen(
             onCancel = { showMarkArrivedConfirm = false },
         )
     }
+
+    if (showAttachInspectionDialog) {
+        LaunchedEffect(Unit) { vm.loadScanDataFiles() }
+        AttachScanDataDialog(
+            loading = vm.scanDataLoading,
+            error = vm.scanDataError,
+            files = vm.scanDataFiles,
+            busy = vm.attachingInspection,
+            onDismiss = { showAttachInspectionDialog = false },
+            onConfirm = { filename ->
+                vm.attachInspectionFromScanData(filename) { success ->
+                    if (success) showAttachInspectionDialog = false
+                }
+            },
+        )
+    }
+
+    if (showInspectionDrawingsViewer) {
+        vm.order?.let { order ->
+            InspectionDrawingsViewerDialog(
+                drawings = order.inspection_drawings,
+                onDismiss = { showInspectionDrawingsViewer = false },
+            )
+        }
+    }
+}
+
+/** スキャンデータから、この受注の検査記録用図面として取り込むファイルを選ぶダイアログ */
+@Composable
+private fun AttachScanDataDialog(
+    loading: Boolean,
+    error: String?,
+    files: List<ScanDataFileDto>,
+    busy: Boolean,
+    onDismiss: () -> Unit,
+    onConfirm: (filename: String) -> Unit,
+) {
+    val feedback = rememberClickFeedback()
+    var selected by remember { mutableStateOf<String?>(null) }
+
+    androidx.compose.material3.AlertDialog(
+        onDismissRequest = { if (!busy) onDismiss() },
+        title = { Text("検査用図面を取り込む", fontWeight = FontWeight.ExtraBold, fontSize = 17.sp) },
+        text = {
+            Column {
+                Text(
+                    "スキャンデータから取り込むファイルを選んでください。",
+                    fontSize = 13.sp,
+                    color = Gray500,
+                    modifier = Modifier.padding(bottom = 10.dp),
+                )
+                when {
+                    loading -> Box(Modifier.fillMaxWidth().padding(16.dp), contentAlignment = Alignment.Center) {
+                        CircularProgressIndicator(Modifier.size(28.dp))
+                    }
+                    error != null -> Text(error, color = MaterialTheme.colorScheme.error, fontSize = 13.sp)
+                    files.isEmpty() -> Text("スキャンデータがありません。", color = Gray500, fontSize = 13.sp)
+                    else -> LazyColumn(
+                        modifier = Modifier.fillMaxWidth().height(260.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp),
+                    ) {
+                        items(files, key = { it.name }) { file ->
+                            val isSelected = selected == file.name
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .background(if (isSelected) MaterialTheme.colorScheme.primary.copy(alpha = 0.12f) else Color(0xFFF9FAFB))
+                                    .clickable { feedback(); selected = file.name }
+                                    .padding(10.dp),
+                            ) {
+                                Column {
+                                    Text(file.name, fontWeight = FontWeight.Bold, fontSize = 14.sp, maxLines = 1)
+                                    Text(
+                                        DateUtil.dateTimeFull(file.modified_at) ?: file.modified_at,
+                                        fontSize = 12.sp,
+                                        color = Gray500,
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            val target = selected
+            Button(
+                onClick = { target?.let { onConfirm(it) } },
+                enabled = target != null && !busy,
+            ) {
+                if (busy) {
+                    CircularProgressIndicator(Modifier.size(18.dp), color = MaterialTheme.colorScheme.onPrimary, strokeWidth = 2.dp)
+                } else {
+                    Text("取り込む", fontWeight = FontWeight.Bold)
+                }
+            }
+        },
+        dismissButton = {
+            androidx.compose.material3.TextButton(onClick = onDismiss, enabled = !busy) { Text("キャンセル") }
+        },
+    )
+}
+
+/** 取り込み済みの検査記録用図面をまとめて確認するビューア（画像はそのまま、PDFはページ画像化して表示） */
+@Composable
+private fun InspectionDrawingsViewerDialog(drawings: List<InspectionDrawingDto>, onDismiss: () -> Unit) {
+    androidx.compose.ui.window.Dialog(
+        onDismissRequest = onDismiss,
+        properties = androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false),
+    ) {
+        Card(
+            modifier = Modifier.fillMaxSize().padding(16.dp),
+            colors = CardDefaults.cardColors(containerColor = Color.White),
+            shape = RoundedCornerShape(16.dp),
+        ) {
+            Column(Modifier.fillMaxSize()) {
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(16.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text("検査記録用図面（${drawings.size}件）", fontWeight = FontWeight.ExtraBold, fontSize = 17.sp)
+                    IconButton(onClick = onDismiss) {
+                        Icon(Icons.Filled.Check, contentDescription = "閉じる")
+                    }
+                }
+                LazyColumn(
+                    modifier = Modifier.fillMaxSize(),
+                    contentPadding = androidx.compose.foundation.layout.PaddingValues(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(20.dp),
+                ) {
+                    items(drawings, key = { it.id }) { drawing ->
+                        InspectionDrawingItem(drawing)
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun InspectionDrawingItem(drawing: InspectionDrawingDto) {
+    Column(Modifier.fillMaxWidth()) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                drawing.original_filename ?: "検査記録用図面",
+                fontWeight = FontWeight.Bold,
+                fontSize = 14.sp,
+                modifier = Modifier.weight(1f),
+            )
+        }
+        drawing.uploaded_by?.let {
+            Text("取り込み: $it", fontSize = 11.sp, color = Gray500)
+        }
+        Spacer(Modifier.height(8.dp))
+        if (drawing.isImage) {
+            coil.compose.AsyncImage(
+                model = drawing.url,
+                contentDescription = null,
+                modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp)),
+            )
+        } else {
+            InspectionDrawingPdfView(drawing.url)
+        }
+    }
+}
+
+@Composable
+private fun InspectionDrawingPdfView(url: String) {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    var pages by remember(url) { mutableStateOf<List<android.graphics.Bitmap>?>(null) }
+    var error by remember(url) { mutableStateOf<String?>(null) }
+    val density = androidx.compose.ui.platform.LocalDensity.current
+    val targetWidthPx = with(density) { 600.dp.roundToPx() }
+
+    LaunchedEffect(url) {
+        pages = null
+        error = null
+        try {
+            pages = jp.co.nse.worker.util.PdfUtil.renderPages(context, url, targetWidthPx)
+        } catch (e: Exception) {
+            error = "PDFを表示できませんでした。"
+        }
+    }
+
+    androidx.compose.runtime.DisposableEffect(pages) {
+        onDispose { pages?.forEach { it.recycle() } }
+    }
+
+    when {
+        error != null -> Text(error ?: "", color = MaterialTheme.colorScheme.error, fontSize = 13.sp)
+        pages == null -> Box(Modifier.fillMaxWidth().height(200.dp), contentAlignment = Alignment.Center) {
+            CircularProgressIndicator(Modifier.size(28.dp))
+        }
+        else -> Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            pages?.forEach { bitmap ->
+                androidx.compose.foundation.Image(
+                    bitmap = bitmap.asImageBitmap(),
+                    contentDescription = null,
+                    modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp)),
+                )
+            }
+        }
+    }
 }
 
 @Composable
@@ -335,6 +550,8 @@ private fun CheckSheetContent(
     onViewDrawing: () -> Unit,
     printing: Boolean,
     onPrintDrawing: () -> Unit,
+    onAttachInspectionDrawing: () -> Unit,
+    onViewInspectionDrawings: () -> Unit,
 ) {
     val scrollState = rememberScrollState()
     val scope = androidx.compose.runtime.rememberCoroutineScope()
@@ -386,6 +603,29 @@ private fun CheckSheetContent(
                         Spacer(Modifier.width(8.dp))
                         Text("図面を印刷", fontWeight = FontWeight.Bold, fontSize = 16.sp, color = MaterialTheme.colorScheme.primary)
                     }
+                }
+            }
+        }
+
+        Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
+            OutlinedButton(
+                onClick = { feedback(); onAttachInspectionDrawing() },
+                shape = RoundedCornerShape(14.dp),
+                modifier = Modifier.weight(1f).height(56.dp),
+            ) {
+                Icon(Icons.AutoMirrored.Filled.FactCheck, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(20.dp))
+                Spacer(Modifier.width(8.dp))
+                Text("検査用図面を取り込む", fontWeight = FontWeight.Bold, fontSize = 15.sp, color = MaterialTheme.colorScheme.primary)
+            }
+            if (order.inspection_drawings.isNotEmpty()) {
+                OutlinedButton(
+                    onClick = { feedback(); onViewInspectionDrawings() },
+                    shape = RoundedCornerShape(14.dp),
+                    modifier = Modifier.weight(1f).height(56.dp),
+                ) {
+                    Icon(Icons.Filled.Description, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(20.dp))
+                    Spacer(Modifier.width(8.dp))
+                    Text("検査用図面を見る（${order.inspection_drawings.size}）", fontWeight = FontWeight.Bold, fontSize = 15.sp, color = MaterialTheme.colorScheme.primary)
                 }
             }
         }

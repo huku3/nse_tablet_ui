@@ -60,7 +60,7 @@ fun SplashScreen(onFinished: () -> Unit) {
         finish()
     }
 
-    val logoWidth = 280.dp
+    val logoWidth = 340.dp
     val logoHeight = logoWidth * LOGO_ASPECT
 
     Box(

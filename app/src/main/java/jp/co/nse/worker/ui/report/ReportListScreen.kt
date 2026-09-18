@@ -148,13 +148,13 @@ fun ReportListScreen(
 }
 
 @Composable
-private fun ReportRow(report: ReportDto, onClick: () -> Unit) {
+internal fun ReportRow(report: ReportDto, onClick: (() -> Unit)? = null) {
     Column(
         modifier = Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(12.dp))
             .background(Color.White)
-            .clickable(onClick = onClick)
+            .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier)
             .padding(16.dp),
     ) {
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -178,7 +178,7 @@ private fun ReportRow(report: ReportDto, onClick: () -> Unit) {
 }
 
 @Composable
-private fun StatusChip(label: String, color: Color) {
+internal fun StatusChip(label: String, color: Color) {
     Box(
         modifier = Modifier.clip(RoundedCornerShape(6.dp)).background(color).padding(horizontal = 8.dp, vertical = 3.dp),
     ) {
@@ -187,7 +187,7 @@ private fun StatusChip(label: String, color: Color) {
 }
 
 @Composable
-private fun CategoryChip(label: String) {
+internal fun CategoryChip(label: String) {
     Box(
         modifier = Modifier
             .clip(RoundedCornerShape(6.dp))
