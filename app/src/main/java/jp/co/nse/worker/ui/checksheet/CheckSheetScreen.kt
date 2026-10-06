@@ -503,7 +503,12 @@ private fun MarkArrivedConfirmDialog(onConfirm: () -> Unit, onCancel: () -> Unit
     androidx.compose.material3.AlertDialog(
         onDismissRequest = onCancel,
         title = { Text("材料を到着済みにしますか？", fontWeight = FontWeight.Bold) },
-        text = { Text("この受注のステータスを「材料到着済み」に変更します。", fontSize = 14.sp) },
+        text = {
+            Text(
+                "この受注のステータスを「材料到着済み」に変更します。\n入荷予定日より早く届いた場合は、材料入荷日が本日に更新されます。",
+                fontSize = 14.sp,
+            )
+        },
         confirmButton = {
             Button(
                 onClick = { feedback(); onConfirm() },
@@ -794,21 +799,27 @@ private fun LabeledRow(
     }
 }
 
+/** 「到着済みにする」を押せる受注ステータス（サーバー側 Order::MARK_ARRIVED_STATUSES と同一） */
+private val markArrivedStatuses = setOf("material_waiting", "material_arrived_date")
+
 @Composable
 private fun MaterialArrivalBanner(order: CheckSheetOrderDto, markingArrived: Boolean, onMarkArrived: () -> Unit) {
-    val dateLabel = DateUtil.monthDayLabel(order.material_arrived_at) ?: return
+    // 入荷予定日より早く届くこともあるため、材料待ちなら予定日が無くても到着済みにできる（Order::MARK_ARRIVED_STATUSES 対応）
+    val canMarkArrived = order.status in markArrivedStatuses
+    val dateLabel = DateUtil.monthDayLabel(order.material_arrived_at)
+    if (dateLabel == null && !canMarkArrived) return
     data class Style(val bg: Color, val text: Color, val message: String, val icon: androidx.compose.ui.graphics.vector.ImageVector?)
-    val style = when (order.status) {
-        "material_arrived" -> Style(Color(0xFFECFDF5), Color(0xFF065F46), "材料到着済み", Icons.Filled.Check)
-        "material_arrived_date" -> Style(
+    val style = when {
+        order.status == "material_arrived" -> Style(Color(0xFFECFDF5), Color(0xFF065F46), "材料到着済み", Icons.Filled.Check)
+        order.status == "material_arrived_date" -> Style(
             Color(0xFFFFFBEB),
             Color(0xFF92400E),
-            "材料到着日（$dateLabel）— 到着確認が必要です",
+            "材料到着日（${dateLabel ?: "—"}）— 到着確認が必要です",
             Icons.Filled.Warning,
         )
-        else -> Style(Color(0xFFF9FAFB), Color(0xFF374151), "材料入荷予定日: $dateLabel", null)
+        dateLabel != null -> Style(Color(0xFFF9FAFB), Color(0xFF374151), "材料入荷予定日: $dateLabel", null)
+        else -> Style(Color(0xFFF9FAFB), Color(0xFF374151), "材料待ち（入荷予定日未登録）", null)
     }
-    val canMarkArrived = order.status == "material_arrived_date"
     Card(
         colors = CardDefaults.cardColors(containerColor = style.bg),
         shape = RoundedCornerShape(14.dp),

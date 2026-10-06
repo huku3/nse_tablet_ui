@@ -121,7 +121,13 @@ class ProcessAssignmentViewModel(private val repo: ManagerRepository) : ViewMode
         message = null
     }
 
+    /**
+     * 編集中（isEditMode）に呼ばれた場合は何もしない。ヘッダーの「更新」ボタンなどから
+     * 呼ばれてサーバーの最新状態でworkingStateを上書きしてしまうと、まだ保存していない
+     * 変更（他の工程タブで行った分も含む）が黙って消えてしまうため
+     */
     fun load() {
+        if (isEditMode) return
         viewModelScope.launch {
             loading = true
             error = null
@@ -295,8 +301,12 @@ fun ProcessAssignmentScreen(onBack: () -> Unit, onLogout: () -> Unit = {}) {
                     HeaderUserLabel(userName)
                     NotificationBell()
                     HeaderOverflowMenu(showProcessAssignments = false)
-                    IconButton(onClick = { feedback(); vm.load() }) {
-                        Icon(Icons.Filled.Refresh, contentDescription = "更新", tint = MaterialTheme.colorScheme.onPrimary)
+                    IconButton(onClick = { feedback(); vm.load() }, enabled = !vm.isEditMode) {
+                        Icon(
+                            Icons.Filled.Refresh,
+                            contentDescription = "更新",
+                            tint = MaterialTheme.colorScheme.onPrimary.copy(alpha = if (vm.isEditMode) 0.4f else 1f),
+                        )
                     }
                     IconButton(onClick = { feedback(); onLogout() }) {
                         Icon(Icons.AutoMirrored.Filled.Logout, contentDescription = "ログアウト", tint = MaterialTheme.colorScheme.onPrimary)

@@ -204,7 +204,7 @@ class CheckSheetViewModel(
         deadlineError = null
     }
 
-    /** 材料到着済みにする（material_arrived_date → material_arrived） */
+    /** 材料到着済みにする（材料待ち・材料到着日 → material_arrived） */
     fun markMaterialArrived() {
         viewModelScope.launch {
             markingArrived = true

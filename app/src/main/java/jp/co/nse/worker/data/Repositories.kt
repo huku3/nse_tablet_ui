@@ -37,8 +37,13 @@ fun UserDto.canViewShippingCalendar(): Boolean = hasFeature("shipping.calendar")
 /** 担当工程マスタ（マイページからの導線）を見る権限を持つか */
 fun UserDto.canManageProcessAssignments(): Boolean = hasFeature("worker_process_assignments.view")
 
-/** 不具合・要望の報告一覧・対応管理を見る権限を持つか */
-fun UserDto.canManageReports(): Boolean = hasFeature("reports.manage")
+/**
+ * システム不具合・要望の報告の削除・対応ステータス変更ができるか。一覧・詳細閲覧・投稿は作業者全員に
+ * 開放しているため権限チェック不要（サーバー側 Api\ReportController と同じ設計）。
+ * 以前は reports.view/reports.manage という権限キーで細かく制御していたが、実際に
+ * システム管理者以外へ付与されることが無かったため、素直にロール判定に統一した。
+ */
+fun UserDto.canManageReports(): Boolean = role == "manager"
 
 /** スキャンデータ（コピー機で読み取ったPDF）の閲覧権限を持つか */
 fun UserDto.canViewScanData(): Boolean = hasFeature("scan_data.view")
@@ -72,6 +77,22 @@ internal fun handleAction(response: Response<ActionResponse>): ApiResult<Unit> {
     // Laravelのabort_unless(...)がメッセージ無しで呼ばれると {"message":""} を返すことがあり、
     // その場合はnullではなく空文字が入るため、blankもnull同様にフォールバックさせる
     val message = raw?.let {
+        runCatching { errorJson.decodeFromString<ActionResponse>(it).message }.getOrNull()
+    }?.takeIf { it.isNotBlank() }
+    return ApiResult.Failure(message ?: "操作に失敗しました（${response.code()}）。")
+}
+
+/** 部分完了の1個ずつ操作の共通処理。失敗時はサーバーの message をそのまま返す */
+private fun handleItemAction(response: Response<ItemActionResponse>): ApiResult<ItemActionResponse> {
+    if (response.isSuccessful) {
+        val body = response.body() ?: ItemActionResponse(ok = true)
+        return if (body.ok == false) {
+            ApiResult.Failure(body.message?.takeIf { it.isNotBlank() } ?: "操作に失敗しました。")
+        } else {
+            ApiResult.Success(body)
+        }
+    }
+    val message = response.errorBody()?.string()?.let {
         runCatching { errorJson.decodeFromString<ActionResponse>(it).message }.getOrNull()
     }?.takeIf { it.isNotBlank() }
     return ApiResult.Failure(message ?: "操作に失敗しました（${response.code()}）。")
@@ -263,8 +284,57 @@ class WorkerRepository(
         processId: Int,
         status: String,
         pauseReason: String? = null,
-    ): ApiResult<Unit> = try {
-        handleAction(apiProvider().updateStatus(orderId, processId, UpdateStatusRequest(status, pauseReason)))
+    ): ApiResult<ActionResponse> = try {
+        // 成功時の本文（工程＋needs_stock）は、完了時の在庫処理の案内に使う
+        val response = apiProvider().updateStatus(orderId, processId, UpdateStatusRequest(status, pauseReason))
+        when (val result = handleAction(response)) {
+            is ApiResult.Success -> ApiResult.Success(response.body() ?: ActionResponse(ok = true))
+            is ApiResult.Failure -> result
+        }
+    } catch (e: Throwable) {
+        ApiResult.Failure(e.toUserMessage())
+    }
+
+    suspend fun startItem(orderId: Int, processId: Int): ApiResult<ItemActionResponse> = try {
+        handleItemAction(apiProvider().startItem(orderId, processId))
+    } catch (e: Throwable) {
+        ApiResult.Failure(e.toUserMessage())
+    }
+
+    suspend fun completeItem(orderId: Int, processId: Int): ApiResult<ItemActionResponse> = try {
+        handleItemAction(apiProvider().completeItem(orderId, processId))
+    } catch (e: Throwable) {
+        ApiResult.Failure(e.toUserMessage())
+    }
+
+    /** 複数人工程のみ。[status]は paused | broken */
+    suspend fun pauseItem(
+        orderId: Int,
+        processId: Int,
+        status: String,
+        pauseReason: String? = null,
+    ): ApiResult<ItemActionResponse> = try {
+        handleItemAction(apiProvider().pauseItem(orderId, processId, PauseItemRequest(status, pauseReason)))
+    } catch (e: Throwable) {
+        ApiResult.Failure(e.toUserMessage())
+    }
+
+    /** 複数人工程のみ */
+    suspend fun resumeItem(orderId: Int, processId: Int, itemIndex: Int): ApiResult<ItemActionResponse> = try {
+        handleItemAction(apiProvider().resumeItem(orderId, processId, ResumeItemRequest(itemIndex)))
+    } catch (e: Throwable) {
+        ApiResult.Failure(e.toUserMessage())
+    }
+
+    suspend fun undoStartItem(orderId: Int, processId: Int): ApiResult<ItemActionResponse> = try {
+        handleItemAction(apiProvider().undoStartItem(orderId, processId))
+    } catch (e: Throwable) {
+        ApiResult.Failure(e.toUserMessage())
+    }
+
+    /** 単独担当のみ */
+    suspend fun updateBatchMode(orderId: Int, processId: Int, batchMode: Boolean): ApiResult<ItemActionResponse> = try {
+        handleItemAction(apiProvider().updateBatchMode(orderId, processId, BatchModeRequest(batchMode)))
     } catch (e: Throwable) {
         ApiResult.Failure(e.toUserMessage())
     }
@@ -275,30 +345,42 @@ class WorkerRepository(
         ApiResult.Failure(e.toUserMessage())
     }
 
-    /** 「追加修正が必要」（最終検査・追加修正後検査での手直し登録）。photoは任意（不良箇所の写真） */
+    /**
+     * 「追加修正が必要」（作業中の工程から前工程の手直しを登録）。attachmentsは任意（写真・PDF、複数可）。
+     * 422で本文が空のとき（工程が作業中でない・対象工程が別の受注）や403は、画面更新を促す文言にする。
+     */
     suspend fun reportRework(
         orderId: Int,
         processId: Int,
         targetProcessId: Int,
         count: Int,
         content: String,
-        photo: ImageAttachment? = null,
+        attachments: List<ImageAttachment> = emptyList(),
     ): ApiResult<Unit> = try {
         fun text(value: String) = value.toRequestBody("text/plain".toMediaType())
-        val photoPart = photo?.let {
+        val parts = attachments.map {
             val requestBody = it.bytes.toRequestBody(it.mimeType.toMediaType())
             MultipartBody.Part.createFormData("attachments[]", it.filename, requestBody)
         }
-        handleAction(
-            apiProvider().reportRework(
-                orderId = orderId,
-                processId = processId,
-                targetProcessId = text(targetProcessId.toString()),
-                count = text(count.toString()),
-                content = text(content),
-                attachments = photoPart,
-            ),
+        val response = apiProvider().reportRework(
+            orderId = orderId,
+            processId = processId,
+            targetProcessId = text(targetProcessId.toString()),
+            count = text(count.toString()),
+            content = text(content),
+            attachments = parts,
         )
+        when (val result = handleAction(response)) {
+            is ApiResult.Failure -> when {
+                response.code() == 403 ->
+                    ApiResult.Failure("この受注・工程の組み合わせでは追加修正を登録できません。画面を更新してください。")
+                // handleActionのフォールバック文言のまま＝本文にmessageが無かった422
+                response.code() == 422 && result.message.startsWith("操作に失敗しました") ->
+                    ApiResult.Failure("この工程は現在追加修正を登録できません。画面を更新してください。")
+                else -> result
+            }
+            else -> result
+        }
     } catch (e: Throwable) {
         ApiResult.Failure(e.toUserMessage())
     }
@@ -309,7 +391,7 @@ class WorkerRepository(
         ApiResult.Failure(e.toUserMessage())
     }
 
-    /** 材料到着済みにする（material_arrived_date → material_arrived） */
+    /** 材料到着済みにする（材料待ち・材料到着日 → material_arrived） */
     suspend fun markMaterialArrived(orderId: Int): ApiResult<Unit> = try {
         handleAction(apiProvider().markMaterialArrived(orderId))
     } catch (e: Throwable) {
@@ -541,6 +623,13 @@ class ManagerRepository(
         ApiResult.Failure(e.toUserMessage())
     }
 
+    /** 作業者別の割り当て状況（誰が何件・急ぎ何件担当しているか、タップで担当工程の一覧） */
+    suspend fun workerWorkload(): ApiResult<WorkerWorkloadResponse> = try {
+        ApiResult.Success(apiProvider().workerWorkload())
+    } catch (e: Throwable) {
+        ApiResult.Failure(e.toUserMessage())
+    }
+
     /** 担当工程マスタ：作業者一覧・工程マスタ一覧・現在の割り当てを取得 */
     suspend fun processAssignments(): ApiResult<ProcessAssignmentsResponse> = try {
         ApiResult.Success(apiProvider().processAssignments())
@@ -582,6 +671,35 @@ class ManagerRepository(
     /** 担当者を割り当て（null で未割当に戻す） */
     suspend fun assignWorker(orderId: Int, processId: Int, workerName: String?): ApiResult<Unit> = try {
         handleAction(apiProvider().assignWorker(orderId, processId, AssignWorkerRequest(workerName)))
+    } catch (e: Throwable) {
+        ApiResult.Failure(e.toUserMessage())
+    }
+
+    /**
+     * 複数人割り当て可の工程で、1人だけ追加/削除する。編集モードの一括保存とは別に、
+     * タップのたびに即座にサーバーへ反映される（Web版のチェックシート画面と同じ挙動）。
+     */
+    suspend fun toggleProcessWorker(
+        orderId: Int,
+        processId: Int,
+        action: String,
+        workerName: String,
+    ): ApiResult<AssignWorkersResponse> = try {
+        val response = apiProvider().assignWorkers(orderId, processId, AssignWorkersRequest(action, workerName))
+        if (response.isSuccessful) {
+            val body = response.body()
+            if (body?.ok == false) {
+                ApiResult.Failure(body.message?.takeIf { it.isNotBlank() } ?: "操作に失敗しました。")
+            } else {
+                ApiResult.Success(body ?: AssignWorkersResponse())
+            }
+        } else {
+            val raw = response.errorBody()?.string()
+            val message = raw?.let {
+                runCatching { errorJson.decodeFromString<AssignWorkersResponse>(it).message }.getOrNull()
+            }?.takeIf { it.isNotBlank() }
+            ApiResult.Failure(message ?: "操作に失敗しました（${response.code()}）。")
+        }
     } catch (e: Throwable) {
         ApiResult.Failure(e.toUserMessage())
     }
@@ -642,9 +760,25 @@ class ManagerRepository(
     /**
      * 受注詳細画面の「編集」でまとめて変更した複数工程の担当者・工程納期を一括保存する。
      * 同じ担当者へ複数工程を新しく割り当てた場合も、サーバー側で通知を1通にまとめる。
+     * 戻り値は、休暇と重複した担当者×工程納期があればその警告文の一覧（保存自体は止めない。
+     * 無ければ空リスト）。
      */
-    suspend fun batchAssignProcesses(orderId: Int, updates: List<BatchAssignItem>): ApiResult<Unit> = try {
-        handleAction(apiProvider().batchAssignProcesses(orderId, BatchAssignRequest(updates)))
+    suspend fun batchAssignProcesses(orderId: Int, updates: List<BatchAssignItem>): ApiResult<List<String>> = try {
+        val response = apiProvider().batchAssignProcesses(orderId, BatchAssignRequest(updates))
+        if (response.isSuccessful) {
+            val body = response.body()
+            if (body?.ok == false) {
+                ApiResult.Failure(body.message?.takeIf { it.isNotBlank() } ?: "操作に失敗しました。")
+            } else {
+                ApiResult.Success(body?.leave_warnings ?: emptyList())
+            }
+        } else {
+            val raw = response.errorBody()?.string()
+            val message = raw?.let {
+                runCatching { errorJson.decodeFromString<ActionResponse>(it).message }.getOrNull()
+            }?.takeIf { it.isNotBlank() }
+            ApiResult.Failure(message ?: "操作に失敗しました（${response.code()}）。")
+        }
     } catch (e: Throwable) {
         ApiResult.Failure(e.toUserMessage())
     }

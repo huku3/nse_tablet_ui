@@ -16,6 +16,6 @@ fun ReportButton() {
     val context = LocalContext.current
     val feedback = rememberClickFeedback()
     IconButton(onClick = { feedback(); context.appContainer.openReport?.invoke() }) {
-        Icon(Icons.Filled.Feedback, contentDescription = "不具合・要望の報告", tint = MaterialTheme.colorScheme.onPrimary)
+        Icon(Icons.Filled.Feedback, contentDescription = "システム不具合・要望の報告", tint = MaterialTheme.colorScheme.onPrimary)
     }
 }

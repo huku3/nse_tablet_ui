@@ -74,13 +74,15 @@ fun DeadlineCalendarDialog(
     onVisibleMonthChanged: (YearMonth) -> Unit,
     onConfirm: (LocalDate?) -> Unit,
     onDismiss: () -> Unit,
+    // 自動割り振り直後の連続選択中だけ渡す（単独編集の場合はnullのままでボタンを出さない）
+    onPrevious: (() -> Unit)? = null,
+    onNext: (() -> Unit)? = null,
 ) {
     val feedback = rememberClickFeedback()
     val materialArrivedDate = DateUtil.parse(order.material_arrived_at)
     // 既に納期が先の月に設定されていても、カレンダーは常に当月から開く
     // （以前は既存の納期の月が最初に開いていたため、当月に戻すのに毎回移動が必要だった）
     var visibleMonth by remember { mutableStateOf(YearMonth.from(LocalDate.now())) }
-    var selected by remember { mutableStateOf(initialDate) }
     var localError by remember { mutableStateOf<String?>(null) }
 
     // 担当者が割り当て済みなら、その人の休暇予定日は選択をブロックする（従来通り）。
@@ -102,19 +104,31 @@ fun DeadlineCalendarDialog(
                 "工程納期は客先納期（${DateUtil.shortLabel(maxDate)}）より後に設定できません"
             !DateUtil.isWorkingDay(date, holidayDates, overrideDates) ->
                 "この日は休日（日曜・休業日）のため選択できません"
-            date.toString() in workerLeaveDates ->
-                "この日は${workerName ?: "担当者"}さんの休暇予定日のため選択できません"
+            // 担当者の休暇予定日は選択自体は止めない（サーバー側のleave_warningで保存後に警告する）
             else -> null
         }
         if (localError == null) {
             feedback()
-            selected = date
+            // タップした時点でそのまま確定する（以前は「この日に設定」ボタンを別に押す必要があった）
+            onConfirm(date)
         }
     }
 
     AlertDialog(
         onDismissRequest = { if (!saving) onDismiss() },
-        title = { Text("「$processName」の工程納期", fontWeight = FontWeight.Bold, fontSize = 17.sp) },
+        title = {
+            Column {
+                Text("「$processName」の工程納期", fontWeight = FontWeight.Bold, fontSize = 17.sp)
+                if (!workerName.isNullOrBlank()) {
+                    Text(
+                        "担当: $workerName",
+                        fontSize = 17.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.primary,
+                    )
+                }
+            }
+        },
         text = {
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                 OrderContextCard(order)
@@ -192,7 +206,7 @@ fun DeadlineCalendarDialog(
                         )
                         Spacer(Modifier.width(6.dp))
                         Text(
-                            "${workerName ?: "担当者"}さんの休暇予定日（選択不可）",
+                            "${workerName ?: "担当者"}さんの休暇予定日（選択すると警告が出ます）",
                             fontSize = 11.sp,
                             color = Color(0xFFDB2777),
                             fontWeight = FontWeight.SemiBold,
@@ -255,7 +269,7 @@ fun DeadlineCalendarDialog(
                                 if (date != null) {
                                     DayCell(
                                         date = date,
-                                        isSelected = date == selected,
+                                        isSelected = date == initialDate,
                                         isToday = date == LocalDate.now(),
                                         isCustomerDate = date == maxDate,
                                         isMaterialArrivalDate = date == materialArrivedDate,
@@ -286,35 +300,32 @@ fun DeadlineCalendarDialog(
                     )
                 }
 
-                selected?.let {
-                    Spacer(Modifier.height(6.dp))
-                    Text(
-                        "選択中: ${DateUtil.shortLabel(it)}",
-                        fontSize = 13.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.primary,
-                    )
+                if (saving) {
+                    Spacer(Modifier.height(8.dp))
+                    CircularProgressIndicator(modifier = Modifier.size(22.dp), strokeWidth = 2.5.dp)
                 }
             }
         },
-        confirmButton = {
-            if (saving) {
-                CircularProgressIndicator(modifier = Modifier.size(22.dp), strokeWidth = 2.5.dp)
-            } else {
-                TextButton(onClick = { feedback(); onConfirm(selected) }, enabled = selected != null) {
-                    Text("この日に設定", color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
-                }
-            }
-        },
+        confirmButton = {},
         dismissButton = {
-            Row {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                TextButton(onClick = { feedback(); onDismiss() }, enabled = !saving) {
+                    Text("キャンセル", color = Color(0xFF6B7280))
+                }
+                if (onPrevious != null) {
+                    TextButton(onClick = { feedback(); onPrevious() }, enabled = !saving) {
+                        Text("前の工程", color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
+                    }
+                }
+                if (onNext != null) {
+                    TextButton(onClick = { feedback(); onNext() }, enabled = !saving) {
+                        Text("次の工程", color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
+                    }
+                }
                 if (initialDate != null) {
                     TextButton(onClick = { feedback(); onConfirm(null) }, enabled = !saving) {
                         Text("未設定に戻す", color = Color(0xFF9CA3AF))
                     }
-                }
-                TextButton(onClick = { feedback(); onDismiss() }, enabled = !saving) {
-                    Text("キャンセル", color = Color(0xFF6B7280))
                 }
             }
         },

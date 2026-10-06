@@ -1,6 +1,8 @@
 package jp.co.nse.worker.ui.assignment
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -11,11 +13,14 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Logout
@@ -55,6 +60,9 @@ import jp.co.nse.worker.data.AssignProcessDto
 import jp.co.nse.worker.data.ManagerRepository
 import jp.co.nse.worker.data.OrderAssignDto
 import jp.co.nse.worker.data.WorkStatus
+import jp.co.nse.worker.data.WorkerWorkloadDto
+import jp.co.nse.worker.data.WorkerWorkloadResponse
+import jp.co.nse.worker.data.WorkerWorkloadTaskDto
 import jp.co.nse.worker.ui.components.HeaderTitle
 import jp.co.nse.worker.ui.components.HeaderLogo
 import jp.co.nse.worker.ui.components.HeaderOverflowMenu
@@ -70,6 +78,7 @@ import jp.co.nse.worker.ui.theme.Orange400
 import jp.co.nse.worker.ui.theme.Red500
 import jp.co.nse.worker.util.AutoRefreshEffect
 import jp.co.nse.worker.util.DateUtil
+import jp.co.nse.worker.util.DeliveryUrgency
 import jp.co.nse.worker.util.rememberClickFeedback
 import kotlinx.coroutines.launch
 import java.time.LocalDate
@@ -99,6 +108,26 @@ class AssignmentListViewModel(
         private set
     var filter by mutableStateOf(DashboardFilter.ALL)
     var statusFilters by mutableStateOf<Set<String>>(emptySet())
+
+    // ===== 割り当て状況タブ（ASSIGNMENTモードのみ使用） =====
+    var workload by mutableStateOf<WorkerWorkloadResponse?>(null)
+        private set
+    var workloadLoading by mutableStateOf(false)
+        private set
+    var workloadError by mutableStateOf<String?>(null)
+        private set
+
+    fun loadWorkload() {
+        viewModelScope.launch {
+            workloadLoading = true
+            workloadError = null
+            when (val result = repo.workerWorkload()) {
+                is ApiResult.Success -> workload = result.data
+                is ApiResult.Failure -> workloadError = result.message
+            }
+            workloadLoading = false
+        }
+    }
 
     /**
      * ORDER_LISTモード（受注一覧）は、絞り込みチップに出す全ステータスを明示的にサーバーへ渡して
@@ -245,100 +274,145 @@ fun AssignmentListScreen(
             )
         },
     ) { padding ->
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(padding)
-                .background(MaterialTheme.colorScheme.background),
-        ) {
-            when {
-                vm.loading && vm.orders.isEmpty() -> CircularProgressIndicator(Modifier.align(Alignment.Center))
-                vm.error != null && vm.orders.isEmpty() -> {
-                    Column(
-                        modifier = Modifier.align(Alignment.Center).padding(24.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                    ) {
-                        Text(vm.error ?: "", color = MaterialTheme.colorScheme.error)
-                        Spacer(Modifier.height(12.dp))
-                        Button(onClick = { feedback(); vm.load() }) { Text("再読み込み") }
-                    }
-                }
-                vm.orders.isEmpty() -> {
-                    Text(
-                        "対象の受注がありません",
-                        modifier = Modifier.align(Alignment.Center),
-                        fontWeight = FontWeight.Bold,
+        if (mode == OrderListMode.ASSIGNMENT) {
+            val pagerState = androidx.compose.foundation.pager.rememberPagerState(initialPage = 0) { 2 }
+            val scope = androidx.compose.runtime.rememberCoroutineScope()
+            Column(Modifier.fillMaxSize().padding(padding)) {
+                androidx.compose.material3.TabRow(selectedTabIndex = pagerState.currentPage) {
+                    androidx.compose.material3.Tab(
+                        selected = pagerState.currentPage == 0,
+                        onClick = { scope.launch { pagerState.animateScrollToPage(0) } },
+                        text = { Text("一覧", fontWeight = FontWeight.Bold) },
+                    )
+                    androidx.compose.material3.Tab(
+                        selected = pagerState.currentPage == 1,
+                        onClick = { scope.launch { pagerState.animateScrollToPage(1) } },
+                        text = { Text("割り当て状況", fontWeight = FontWeight.Bold) },
                     )
                 }
-                else -> {
-                    val listState = androidx.compose.foundation.lazy.rememberLazyListState()
-                    val scope = androidx.compose.runtime.rememberCoroutineScope()
-                    val filteredOrders = vm.filteredOrders
-                    Column(Modifier.fillMaxSize()) {
-                        // スクロールしても絞り込み中のダッシュボードが隠れないよう、リストの外（TopAppBar直下）に固定表示する
-                        if (mode == OrderListMode.ASSIGNMENT) {
-                            DashboardRow(
-                                modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
-                                totalCount = vm.orders.size,
-                                urgentCount = vm.urgentCount,
-                                todayCount = vm.todayCount,
-                                unassignedCount = vm.unassignedCount,
-                                filter = vm.filter,
-                                onSelect = { vm.toggleFilter(it) },
-                            )
-                        } else {
-                            StatusFilterRow(
-                                modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
-                                orders = vm.orders,
-                                selectedStatuses = vm.statusFilters,
-                                onSelect = { vm.toggleStatusFilter(it) },
-                            )
-                        }
-                        Box(Modifier.weight(1f).fillMaxWidth()) {
-                            LazyColumn(
-                                state = listState,
-                                modifier = Modifier.fillMaxSize(),
-                                contentPadding = androidx.compose.foundation.layout.PaddingValues(
-                                    start = 16.dp, top = 4.dp, end = 16.dp, bottom = 96.dp,
-                                ),
-                                verticalArrangement = Arrangement.spacedBy(12.dp),
-                            ) {
-                                if (filteredOrders.isEmpty()) {
-                                    item(key = "filtered-empty") {
-                                        Text(
-                                            "条件に一致する受注がありません",
-                                            modifier = Modifier.fillMaxWidth().padding(vertical = 32.dp),
-                                            textAlign = androidx.compose.ui.text.style.TextAlign.Center,
-                                            fontWeight = FontWeight.Bold,
-                                            color = Color(0xFF9CA3AF),
-                                        )
-                                    }
-                                } else {
-                                    items(filteredOrders, key = { it.id }) { order ->
-                                        OrderAssignCard(
-                                            order = order,
-                                            daysOverdue = vm.businessDaysFor(order),
-                                            onClick = { onOpenOrder(order.id) },
-                                        )
-                                    }
+                androidx.compose.foundation.pager.HorizontalPager(
+                    state = pagerState,
+                    modifier = Modifier.weight(1f).fillMaxWidth(),
+                ) { page ->
+                    if (page == 1) {
+                        WorkerWorkloadTab(vm = vm, onOpenOrder = onOpenOrder)
+                    } else {
+                        OrderListContent(vm = vm, mode = mode, feedback = feedback, onOpenOrder = onOpenOrder)
+                    }
+                }
+            }
+        } else {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(padding)
+                    .background(MaterialTheme.colorScheme.background),
+            ) {
+                OrderListContent(vm = vm, mode = mode, feedback = feedback, onOpenOrder = onOpenOrder)
+            }
+        }
+    }
+}
+
+@Composable
+private fun OrderListContent(
+    vm: AssignmentListViewModel,
+    mode: OrderListMode,
+    feedback: () -> Unit,
+    onOpenOrder: (orderId: Int) -> Unit,
+) {
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(MaterialTheme.colorScheme.background),
+    ) {
+        when {
+            vm.loading && vm.orders.isEmpty() -> CircularProgressIndicator(Modifier.align(Alignment.Center))
+            vm.error != null && vm.orders.isEmpty() -> {
+                Column(
+                    modifier = Modifier.align(Alignment.Center).padding(24.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                ) {
+                    Text(vm.error ?: "", color = MaterialTheme.colorScheme.error)
+                    Spacer(Modifier.height(12.dp))
+                    Button(onClick = { feedback(); vm.load() }) { Text("再読み込み") }
+                }
+            }
+            vm.orders.isEmpty() -> {
+                Text(
+                    "対象の受注がありません",
+                    modifier = Modifier.align(Alignment.Center),
+                    fontWeight = FontWeight.Bold,
+                )
+            }
+            else -> {
+                val listState = androidx.compose.foundation.lazy.rememberLazyListState()
+                val scope = androidx.compose.runtime.rememberCoroutineScope()
+                val filteredOrders = vm.filteredOrders
+                Column(Modifier.fillMaxSize()) {
+                    // スクロールしても絞り込み中のダッシュボードが隠れないよう、リストの外（TopAppBar直下）に固定表示する
+                    if (mode == OrderListMode.ASSIGNMENT) {
+                        DashboardRow(
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+                            totalCount = vm.orders.size,
+                            urgentCount = vm.urgentCount,
+                            todayCount = vm.todayCount,
+                            unassignedCount = vm.unassignedCount,
+                            filter = vm.filter,
+                            onSelect = { vm.toggleFilter(it) },
+                        )
+                    } else {
+                        StatusFilterRow(
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+                            orders = vm.orders,
+                            selectedStatuses = vm.statusFilters,
+                            onSelect = { vm.toggleStatusFilter(it) },
+                        )
+                    }
+                    Box(Modifier.weight(1f).fillMaxWidth()) {
+                        LazyColumn(
+                            state = listState,
+                            modifier = Modifier.fillMaxSize(),
+                            contentPadding = androidx.compose.foundation.layout.PaddingValues(
+                                start = 16.dp, top = 4.dp, end = 16.dp, bottom = 96.dp,
+                            ),
+                            verticalArrangement = Arrangement.spacedBy(12.dp),
+                        ) {
+                            if (filteredOrders.isEmpty()) {
+                                item(key = "filtered-empty") {
+                                    Text(
+                                        "条件に一致する受注がありません",
+                                        modifier = Modifier.fillMaxWidth().padding(vertical = 32.dp),
+                                        textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                                        fontWeight = FontWeight.Bold,
+                                        color = Color(0xFF9CA3AF),
+                                    )
+                                }
+                            } else {
+                                items(filteredOrders, key = { it.id }) { order ->
+                                    OrderAssignCard(
+                                        order = order,
+                                        daysOverdue = vm.businessDaysFor(order),
+                                        onClick = { onOpenOrder(order.id) },
+                                    )
                                 }
                             }
-                            ScrollToTopFab(
-                                visible = listState.firstVisibleItemIndex > 0,
-                                onClick = { scope.launch { listState.animateScrollToItem(0) } },
-                                modifier = Modifier.align(Alignment.BottomEnd).padding(20.dp),
-                            )
-                            ScrollToBottomFab(
-                                visible = listState.canScrollForward,
-                                onClick = {
-                                    scope.launch {
-                                        val lastIndex = listState.layoutInfo.totalItemsCount - 1
-                                        if (lastIndex >= 0) listState.animateScrollToItem(lastIndex)
-                                    }
-                                },
-                                modifier = Modifier.align(Alignment.BottomStart).padding(20.dp),
-                            )
                         }
+                        ScrollToTopFab(
+                            visible = listState.firstVisibleItemIndex > 0,
+                            onClick = { scope.launch { listState.animateScrollToItem(0) } },
+                            modifier = Modifier.align(Alignment.BottomEnd).padding(20.dp),
+                        )
+                        ScrollToBottomFab(
+                            visible = listState.canScrollForward,
+                            onClick = {
+                                scope.launch {
+                                    val lastIndex = listState.layoutInfo.totalItemsCount - 1
+                                    if (lastIndex >= 0) listState.animateScrollToItem(lastIndex)
+                                }
+                            },
+                            modifier = Modifier.align(Alignment.BottomStart).padding(20.dp),
+                        )
                     }
                 }
             }
@@ -542,24 +616,48 @@ private fun OrderAssignCard(
     val allAssigned = total > 0 && assigned == total
     val feedback = rememberClickFeedback()
     val isOverdue = daysOverdue != null && daysOverdue < 0
+    // 客先納期までの営業日数に応じてカードを色分けする：納期超過～1営業日以内は赤、2～3営業日は黄。
+    // 左端のバーだけだと目立たないため、カード全体の背景・枠線も色付けして一目で分かるようにする
+    val urgency = DateUtil.deliveryUrgency(daysOverdue)
+    val accentColor = when (urgency) {
+        DeliveryUrgency.CRITICAL -> Red500
+        DeliveryUrgency.WARNING -> Amber500
+        DeliveryUrgency.NONE -> null
+    }
+    val cardBackground = when (urgency) {
+        DeliveryUrgency.CRITICAL -> Color(0xFFFEF2F2)
+        DeliveryUrgency.WARNING -> Color(0xFFFFFBEB)
+        DeliveryUrgency.NONE -> Color.White
+    }
     val hasCustomerName = !order.customer_name.isNullOrBlank()
 
     Row(modifier = Modifier.fillMaxWidth().height(androidx.compose.foundation.layout.IntrinsicSize.Min)) {
-        if (isOverdue) {
+        if (accentColor != null) {
             Box(
                 modifier = Modifier
                     .fillMaxHeight()
                     .width(5.dp)
                     .clip(RoundedCornerShape(topStart = 16.dp, bottomStart = 16.dp))
-                    .background(Red500),
+                    .background(accentColor),
             )
         }
         Card(
             onClick = { feedback(); onClick() },
-            modifier = Modifier.weight(1f),
-            colors = CardDefaults.cardColors(containerColor = Color.White),
+            modifier = Modifier.weight(1f)
+                .then(
+                    if (accentColor != null) {
+                        Modifier.border(
+                            1.dp,
+                            accentColor.copy(alpha = 0.5f),
+                            RoundedCornerShape(topStart = 0.dp, topEnd = 16.dp, bottomEnd = 16.dp, bottomStart = 0.dp),
+                        )
+                    } else {
+                        Modifier
+                    },
+                ),
+            colors = CardDefaults.cardColors(containerColor = cardBackground),
             elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
-            shape = if (isOverdue) {
+            shape = if (accentColor != null) {
                 RoundedCornerShape(topStart = 0.dp, topEnd = 16.dp, bottomEnd = 16.dp, bottomStart = 0.dp)
             } else {
                 RoundedCornerShape(16.dp)
@@ -598,7 +696,7 @@ private fun OrderAssignCard(
                                 DateUtil.shortLabel(date),
                                 fontSize = 13.sp,
                                 fontWeight = FontWeight.SemiBold,
-                                color = if (isOverdue) Red500 else Color(0xFF6B7280),
+                                color = accentColor ?: Color(0xFF6B7280),
                             )
                         }
                         if (isOverdue) {
@@ -723,4 +821,360 @@ private fun ProcessWorkerColumn(process: AssignProcessDto) {
             )
         }
     }
+}
+
+/**
+ * 「割り当て状況」タブ：作業者別に担当件数・急ぎ件数を一覧表示し、タップすると担当工程を
+ * カードで見られる（閲覧専用。作業開始・完了などの操作ボタンは無い）。
+ */
+@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
+@Composable
+private fun WorkerWorkloadTab(
+    vm: AssignmentListViewModel,
+    onOpenOrder: (orderId: Int) -> Unit,
+) {
+    val feedback = rememberClickFeedback()
+    var selectedWorker by androidx.compose.runtime.remember { mutableStateOf<WorkerWorkloadDto?>(null) }
+
+    androidx.compose.runtime.LaunchedEffect(Unit) {
+        if (vm.workload == null) vm.loadWorkload()
+    }
+
+    Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
+        when {
+            vm.workloadLoading && vm.workload == null -> CircularProgressIndicator(Modifier.align(Alignment.Center))
+            vm.workloadError != null && vm.workload == null -> {
+                Column(
+                    modifier = Modifier.align(Alignment.Center).padding(24.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                ) {
+                    Text(vm.workloadError ?: "", color = MaterialTheme.colorScheme.error)
+                    Spacer(Modifier.height(12.dp))
+                    Button(onClick = { feedback(); vm.loadWorkload() }) { Text("再読み込み") }
+                }
+            }
+            vm.workload != null -> {
+                val data = vm.workload!!
+                LazyColumn(
+                    modifier = Modifier.fillMaxSize(),
+                    contentPadding = androidx.compose.foundation.layout.PaddingValues(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(14.dp),
+                ) {
+                    item(key = "summary") { WorkloadSummaryRow(data.summary) }
+                    item(key = "hint") {
+                        Text(
+                            "作業者をタップすると担当している工程の一覧が見られます",
+                            fontSize = 12.sp,
+                            color = Color(0xFF9CA3AF),
+                        )
+                    }
+                    if (data.workers.isEmpty()) {
+                        item(key = "empty") {
+                            Text(
+                                "対象の作業者がいません",
+                                modifier = Modifier.fillMaxWidth().padding(vertical = 32.dp),
+                                textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                                fontWeight = FontWeight.Bold,
+                                color = Color(0xFF9CA3AF),
+                            )
+                        }
+                    } else {
+                        item(key = "grid") {
+                            androidx.compose.foundation.layout.FlowRow(
+                                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                                verticalArrangement = Arrangement.spacedBy(10.dp),
+                            ) {
+                                data.workers.forEach { worker ->
+                                    WorkerWorkloadCard(
+                                        worker = worker,
+                                        modifier = Modifier.width(180.dp),
+                                        onClick = { feedback(); selectedWorker = worker },
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    selectedWorker?.let { worker ->
+        WorkerTasksDialog(
+            worker = worker,
+            onDismiss = { selectedWorker = null },
+            onOpenOrder = { orderId -> feedback(); selectedWorker = null; onOpenOrder(orderId) },
+        )
+    }
+}
+
+@Composable
+private fun WorkloadSummaryRow(summary: jp.co.nse.worker.data.WorkerWorkloadSummaryDto) {
+    Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
+        WorkloadSummaryCard(
+            modifier = Modifier.weight(1f),
+            label = "作業中の人数",
+            count = summary.working_count,
+            valueColor = MaterialTheme.colorScheme.primary,
+        )
+        WorkloadSummaryCard(
+            modifier = Modifier.weight(1f),
+            label = "総担当件数",
+            count = summary.active_count,
+            valueColor = Color(0xFF1F2937),
+        )
+        WorkloadSummaryCard(
+            modifier = Modifier.weight(1f),
+            label = "急ぎの件数",
+            count = summary.urgent_count,
+            valueColor = Red500,
+            highlighted = summary.urgent_count > 0,
+        )
+    }
+}
+
+@Composable
+private fun WorkloadSummaryCard(
+    modifier: Modifier = Modifier,
+    label: String,
+    count: Int,
+    valueColor: Color,
+    highlighted: Boolean = false,
+) {
+    Column(
+        modifier = modifier
+            .clip(RoundedCornerShape(14.dp))
+            .background(if (highlighted) Color(0xFFFEF2F2) else Color.White)
+            .padding(vertical = 12.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        Text("$count", fontWeight = FontWeight.Black, fontSize = 26.sp, color = valueColor)
+        Text(label, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = Color(0xFF6B7280))
+    }
+}
+
+private fun workerStatusMeta(status: String): Pair<String, Color> = when (status) {
+    "working" -> "作業中" to Color(0xFF2563EB)
+    "paused" -> "中断中" to Color(0xFFC2410C)
+    "waiting" -> "待機中" to Color(0xFF9CA3AF)
+    else -> "空き" to Color(0xFF9CA3AF)
+}
+
+@Composable
+private fun WorkerWorkloadCard(
+    worker: WorkerWorkloadDto,
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit,
+) {
+    val (statusLabel, statusColor) = workerStatusMeta(worker.status)
+    val color = parseHexColorOrDefault(worker.color)
+
+    Column(
+        modifier = modifier
+            .clip(RoundedCornerShape(14.dp))
+            .background(Color.White)
+            .clickable(onClick = onClick),
+    ) {
+        Box(Modifier.fillMaxWidth().height(4.dp).background(color))
+        Column(Modifier.padding(12.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(
+                    modifier = Modifier
+                        .size(36.dp)
+                        .clip(androidx.compose.foundation.shape.CircleShape)
+                        .background(color),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text(worker.name.take(1), color = Color.White, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                }
+                Spacer(Modifier.width(8.dp))
+                Column(Modifier.weight(1f)) {
+                    Text(
+                        worker.name,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 15.sp,
+                        color = Color(0xFF1F2937),
+                        maxLines = 1,
+                        softWrap = false,
+                    )
+                    Text(statusLabel, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = statusColor)
+                }
+            }
+            Spacer(Modifier.height(8.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
+                WorkerStatBlock(
+                    modifier = Modifier.weight(1f),
+                    label = "担当",
+                    count = worker.active_count,
+                    color = Color(0xFF374151),
+                    background = Color(0xFFF9FAFB),
+                )
+                WorkerStatBlock(
+                    modifier = Modifier.weight(1f),
+                    label = "急ぎ",
+                    count = worker.urgent_count,
+                    color = if (worker.urgent_count > 0) Red500 else Color(0xFF9CA3AF),
+                    background = if (worker.urgent_count > 0) Color(0xFFFEF2F2) else Color(0xFFF9FAFB),
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun WorkerStatBlock(modifier: Modifier = Modifier, label: String, count: Int, color: Color, background: Color) {
+    Column(
+        modifier = modifier
+            .clip(RoundedCornerShape(8.dp))
+            .background(background)
+            .padding(vertical = 6.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        Text("$count", fontWeight = FontWeight.Bold, fontSize = 18.sp, color = color)
+        Text(label, fontSize = 11.sp, fontWeight = FontWeight.SemiBold, color = Color(0xFF9CA3AF))
+    }
+}
+
+/** 作業者カードをタップしたときに開く、担当工程一覧のダイアログ（閲覧専用） */
+@Composable
+private fun WorkerTasksDialog(
+    worker: WorkerWorkloadDto,
+    onDismiss: () -> Unit,
+    onOpenOrder: (orderId: Int) -> Unit,
+) {
+    val (statusLabel, statusColor) = workerStatusMeta(worker.status)
+    val color = parseHexColorOrDefault(worker.color)
+
+    androidx.compose.material3.AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(
+                    modifier = Modifier
+                        .size(36.dp)
+                        .clip(androidx.compose.foundation.shape.CircleShape)
+                        .background(color),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text(worker.name.take(1), color = Color.White, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                }
+                Spacer(Modifier.width(10.dp))
+                Column {
+                    Text(worker.name, fontWeight = FontWeight.Bold, fontSize = 18.sp)
+                    Text(
+                        "$statusLabel・担当 ${worker.active_count}件",
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = statusColor,
+                    )
+                }
+            }
+        },
+        text = {
+            if (worker.tasks.isEmpty()) {
+                Text(
+                    "担当している工程はありません",
+                    modifier = Modifier.fillMaxWidth().padding(vertical = 24.dp),
+                    textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                    color = Color(0xFF9CA3AF),
+                )
+            } else {
+                Column(
+                    modifier = Modifier
+                        .heightIn(max = 420.dp)
+                        .verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
+                    worker.tasks.forEach { task ->
+                        WorkerTaskRow(task, onClick = { task.order_id?.let(onOpenOrder) })
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            androidx.compose.material3.TextButton(onClick = onDismiss) { Text("閉じる") }
+        },
+    )
+}
+
+@Composable
+private fun WorkerTaskRow(task: WorkerWorkloadTaskDto, onClick: () -> Unit) {
+    val overdue = task.overdue_days != null
+    val (statusLabel, statusColor) = when (task.status) {
+        WorkStatus.IN_PROGRESS -> "作業中" to Color(0xFF1D4ED8)
+        WorkStatus.PAUSED -> "中断中" to Color(0xFFC2410C)
+        WorkStatus.BROKEN -> "機械停止" to Color(0xFFB91C1C)
+        else -> WorkStatus.label(task.status) to Color(0xFF6B7280)
+    }
+    val statusBg = when (task.status) {
+        WorkStatus.IN_PROGRESS -> Color(0xFFDBEAFE)
+        WorkStatus.PAUSED -> Color(0xFFFED7AA)
+        WorkStatus.BROKEN -> Color(0xFFFECACA)
+        else -> Color(0xFFF3F4F6)
+    }
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(10.dp))
+            .then(
+                if (task.urgent) {
+                    Modifier.border(1.dp, Color(0xFFFCA5A5), RoundedCornerShape(10.dp))
+                } else {
+                    Modifier
+                },
+            )
+            .background(if (task.urgent) Color(0xFFFEF2F2) else Color(0xFFFAFAFA))
+            .clickable(onClick = onClick)
+            .padding(12.dp),
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(task.order_id?.let { "No.$it" } ?: "—", fontSize = 12.sp, color = Color(0xFF9CA3AF))
+            Box(
+                modifier = Modifier.clip(RoundedCornerShape(50)).background(statusBg).padding(horizontal = 8.dp, vertical = 2.dp),
+            ) {
+                Text(statusLabel, fontSize = 11.sp, fontWeight = FontWeight.Bold, color = statusColor)
+            }
+        }
+        Spacer(Modifier.height(2.dp))
+        Text(task.part_name ?: "—", fontWeight = FontWeight.Bold, fontSize = 15.sp, color = Color(0xFF1F2937))
+        Spacer(Modifier.height(2.dp))
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                buildString {
+                    append(task.process_name)
+                    task.quantity?.let { append(" ・ ${it}個") }
+                },
+                fontSize = 13.sp,
+                color = Color(0xFF6B7280),
+            )
+            Text(
+                if (task.process_deadline != null) {
+                    "工程納期 ${DateUtil.monthDayLabel(task.process_deadline)}" +
+                        (task.overdue_days?.let { "（${it}日超過）" } ?: "")
+                } else {
+                    "工程納期 未設定"
+                },
+                fontSize = 12.sp,
+                fontWeight = FontWeight.SemiBold,
+                color = if (overdue) Red500 else Color(0xFF6B7280),
+            )
+        }
+    }
+}
+
+private fun parseHexColorOrDefault(hex: String?, default: Color = Color(0xFF6366F1)): Color {
+    if (hex.isNullOrBlank()) return default
+    return runCatching {
+        val h = hex.removePrefix("#")
+        Color(h.substring(0, 2).toInt(16), h.substring(2, 4).toInt(16), h.substring(4, 6).toInt(16))
+    }.getOrDefault(default)
 }

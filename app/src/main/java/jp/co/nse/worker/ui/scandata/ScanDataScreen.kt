@@ -32,6 +32,7 @@ import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.automirrored.filled.FactCheck
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.QrCodeScanner
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -269,6 +270,11 @@ fun ScanDataScreen(onBack: () -> Unit, onLogout: () -> Unit = {}) {
                     HeaderUserLabel(userName)
                     NotificationBell()
                     HeaderOverflowMenu(showScanData = false)
+                    if (selectedFile == null) {
+                        IconButton(onClick = { feedback(); vm.load() }) {
+                            Icon(Icons.Filled.Refresh, contentDescription = "更新", tint = MaterialTheme.colorScheme.onPrimary)
+                        }
+                    }
                     IconButton(onClick = { feedback(); onLogout() }) {
                         Icon(Icons.AutoMirrored.Filled.Logout, contentDescription = "ログアウト", tint = MaterialTheme.colorScheme.onPrimary)
                     }

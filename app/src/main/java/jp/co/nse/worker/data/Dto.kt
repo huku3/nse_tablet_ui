@@ -128,6 +128,9 @@ data class TaskItemDto(
     val notes: String? = null,
     val order: OrderBriefDto,
     val all_processes: List<ProcessBriefDto> = emptyList(),
+    val is_multi_worker: Boolean = false,
+    val my_status: String? = null,
+    val co_workers: List<ProcessWorkerDto> = emptyList(),
 )
 
 @Serializable
@@ -224,6 +227,46 @@ data class WorkerDto(
     val color: String? = null,
 )
 
+// ===== 割り当て状況（作業者別ワークロード） =====
+
+@Serializable
+data class WorkerWorkloadResponse(
+    val workers: List<WorkerWorkloadDto> = emptyList(),
+    val summary: WorkerWorkloadSummaryDto = WorkerWorkloadSummaryDto(),
+)
+
+@Serializable
+data class WorkerWorkloadSummaryDto(
+    val working_count: Int = 0,
+    val active_count: Int = 0,
+    val urgent_count: Int = 0,
+)
+
+@Serializable
+data class WorkerWorkloadDto(
+    val id: Int,
+    val name: String,
+    val color: String? = null,
+    val status: String, // working | paused | waiting | free
+    val active_count: Int = 0,
+    val urgent_count: Int = 0,
+    val in_progress_process_name: String? = null,
+    val tasks: List<WorkerWorkloadTaskDto> = emptyList(),
+)
+
+@Serializable
+data class WorkerWorkloadTaskDto(
+    val order_id: Int? = null,
+    val part_name: String? = null,
+    val process_name: String,
+    val status: String,
+    val delivery_date: String? = null,
+    val process_deadline: String? = null,
+    val overdue_days: Int? = null,
+    val quantity: Int? = null,
+    val urgent: Boolean = false,
+)
+
 /** GET /api/orders はLaravelのページネーション形式。data のみ利用 */
 @Serializable
 data class OrdersPage(
@@ -266,11 +309,36 @@ data class AssignProcessDto(
     val worker: String? = null,
     val process_deadline: String? = null,
     val process_deadline_start: String? = null,
+    val is_multi_worker: Boolean = false,
+    val assigned_workers: List<ProcessWorkerDto> = emptyList(),
+)
+
+/** 複数人割り当て可の工程における、1人分の担当状況（名前＋その人の作業状態） */
+@Serializable
+data class ProcessWorkerDto(
+    val name: String? = null,
+    val status: String = WorkStatus.WAITING,
 )
 
 @Serializable
 data class AssignWorkerRequest(
     val worker: String? = null,
+)
+
+/** 複数人割り当て可の工程で、1人だけ追加/削除するリクエスト（Api\OrderProcessController::assignWorkers） */
+@Serializable
+data class AssignWorkersRequest(
+    val action: String, // "add" | "remove"
+    val worker: String,
+)
+
+@Serializable
+data class AssignWorkersResponse(
+    val ok: Boolean? = null,
+    val message: String? = null,
+    val workers: List<ProcessWorkerDto> = emptyList(),
+    val worker: String? = null,
+    val status: String? = null,
 )
 
 @Serializable
@@ -292,6 +360,17 @@ data class BatchAssignItem(
     val process_deadline: String? = null,
 )
 
+/**
+ * 一括保存の結果。休暇と重複した担当者×工程納期の組み合わせがあれば[leave_warnings]に
+ * 警告文が入るが、保存自体は止めない（サーバー側も同様の考え方）。
+ */
+@Serializable
+data class BatchAssignResponse(
+    val ok: Boolean? = null,
+    val message: String? = null,
+    val leave_warnings: List<String> = emptyList(),
+)
+
 /** GET /api/holidays のレスポンス。日付キー（"Y-m-d"）の集合だけ使う */
 @Serializable
 data class HolidayCalendarResponse(
@@ -310,6 +389,76 @@ data class TaskDetailDto(
     val blocking_process: String? = null,
     val blocking_worker: String? = null,
     val needs_material_check: Boolean = false,
+    /** 部分完了製品（1個ずつ完了にする製品）の工程のときだけ入る。それ以外はnull */
+    val partial: PartialDto? = null,
+)
+
+/**
+ * 部分完了製品の工程の進み具合。作業方法は3通り:
+ * 単独担当・1個ずつ／単独担当・まとめて作業（[batch_mode]）／複数人工程（[is_multi_worker]）。
+ */
+@Serializable
+data class PartialDto(
+    val is_multi_worker: Boolean = false,
+    val batch_mode: Boolean = false,
+    /** 「まとめて作業する」チェックを出してよいか（複数人工程はfalse） */
+    val can_batch: Boolean = false,
+    /** 今チェックを切り替えられるか（作業中の個があるとfalse） */
+    val can_toggle_batch: Boolean = false,
+    /** 1個ずつの表の「前工程」列の見出しに使う直前の工程名（第一工程はnull＝列を出さない） */
+    val prev_process_name: String? = null,
+    val total_count: Int = 0,
+    /** 完了した個数（複数人工程は担当者全員が完了した個数） */
+    val completed_count: Int = 0,
+    val items: List<PartialItemDto> = emptyList(),
+    // --- 単独担当のときだけ ---
+    val active_item_indexes: List<Int> = emptyList(),
+    val next_item_index: Int? = null,
+    val next_blocked_by: String? = null,
+    /** 今「開始」で始まる個数目（まとめて作業なら開始できる分すべて） */
+    val startable_item_indexes: List<Int> = emptyList(),
+    // --- 複数人工程のときだけ（ログイン中の担当者本人の状態） ---
+    val my: PartialMyDto? = null,
+)
+
+@Serializable
+data class PartialItemDto(
+    val item_index: Int,
+    /** waiting | in_progress | completed */
+    val status: String = WorkStatus.WAITING,
+    /** 前工程でこの1個が完了しているか（第一工程はnull） */
+    val prev_completed: Boolean? = null,
+    /** この1個が前工程待ちなら、未完了の前工程名 */
+    val prev_blocked_by: String? = null,
+    /** 複数人工程のときだけ中身がある */
+    val workers: List<PartialItemWorkerDto> = emptyList(),
+)
+
+@Serializable
+data class PartialItemWorkerDto(
+    val user_id: Int,
+    val name: String = "",
+    /** waiting | in_progress | paused | broken | completed | none（担当追加前に完了していた1個は対象外） */
+    val status: String = WorkStatus.WAITING,
+)
+
+@Serializable
+data class PartialMyDto(
+    val active_item_index: Int? = null,
+    val paused_items: List<PartialPausedItemDto> = emptyList(),
+    val next_item_index: Int? = null,
+    val next_blocked_by: String? = null,
+    val can_start: Boolean = false,
+    val my_completed_count: Int = 0,
+    val my_target_count: Int = 0,
+)
+
+@Serializable
+data class PartialPausedItemDto(
+    val item_index: Int,
+    /** paused | broken */
+    val status: String = WorkStatus.PAUSED,
+    val pause_reason: String? = null,
 )
 
 @Serializable
@@ -326,6 +475,10 @@ data class ProcessDetailDto(
     val process_deadline: String? = null,
     val notes: String? = null,
     val pause_reason: String? = null,
+    val is_multi_worker: Boolean = false,
+    val my_status: String? = null,
+    val my_pause_reason: String? = null,
+    val co_workers: List<ProcessWorkerDto> = emptyList(),
 )
 
 @Serializable
@@ -361,6 +514,45 @@ data class DefectRequest(
 data class ActionResponse(
     val ok: Boolean? = null,
     val message: String? = null,
+    /** 工程の完了で受注の全工程が終わり、仮注文のため在庫処理が必要なときtrue（PATCH status の成功時） */
+    val needs_stock: Boolean = false,
+)
+
+@Serializable
+data class PauseItemRequest(
+    /** paused | broken */
+    val status: String,
+    val pause_reason: String? = null,
+)
+
+@Serializable
+data class ResumeItemRequest(
+    val item_index: Int,
+)
+
+@Serializable
+data class BatchModeRequest(
+    val batch_mode: Boolean,
+)
+
+/** 部分完了の1個ずつ操作（start-item / complete-item / pause-item / resume-item / batch-mode）の結果 */
+@Serializable
+data class ItemActionResponse(
+    val ok: Boolean? = null,
+    val message: String? = null,
+    val item_index: Int? = null,
+    val item_indexes: List<Int> = emptyList(),
+    val completed_count: Int? = null,
+    val total: Int? = null,
+    /** 工程のすべての個が完了したか */
+    val process_done: Boolean = false,
+    val order_done: Boolean = false,
+    val needs_stock: Boolean = false,
+    val stock_url: String? = null,
+    /** 複数人工程: その1個が担当者全員完了になったか */
+    val item_done: Boolean? = null,
+    val status: String? = null,
+    val batch_mode: Boolean? = null,
 )
 
 @Serializable
@@ -397,6 +589,10 @@ data class NotificationDataDto(
     val part_number: String? = null,
     val customer_name: String? = null,
     val process_names: List<String>? = null,
+    /** 部分完了の次工程通知（process_turn）: 先頭の個数目・個数目の配列・表示用ラベル（例「1〜3個目」） */
+    val item_index: Int? = null,
+    val item_indexes: List<Int>? = null,
+    val item_label: String? = null,
 )
 
 @Serializable
@@ -697,7 +893,7 @@ data class AllocateRequest(
     val note: String? = null,
 )
 
-// ===== 不具合・要望の報告 =====
+// ===== システム不具合・要望の報告 =====
 
 /** 報告フォームのカテゴリ。[apiValue] はサーバーに送信する値、[label] は画面表示用 */
 enum class ReportCategory(val apiValue: String, val label: String) {
@@ -725,6 +921,7 @@ data class ReportDto(
     val device_model: String? = null,
     val resolver_name: String? = null,
     val resolved_at: String? = null,
+    val can_delete: Boolean = false,
 )
 
 @Serializable

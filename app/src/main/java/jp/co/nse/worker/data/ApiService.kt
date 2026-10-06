@@ -85,6 +85,53 @@ interface ApiService {
         @Body body: UpdateStatusRequest,
     ): Response<ActionResponse>
 
+    // ===== 部分完了製品の1個ずつ操作 =====
+
+    /** 次の1個（まとめて作業なら前工程で完了している分すべて、複数人工程なら自分の次の1個）を開始 */
+    @POST("orders/{order}/processes/{process}/start-item")
+    suspend fun startItem(
+        @Path("order") orderId: Int,
+        @Path("process") processId: Int,
+    ): Response<ItemActionResponse>
+
+    /** 作業中の分（まとめて作業なら全部、複数人工程なら自分が作業中の1個）を完了 */
+    @POST("orders/{order}/processes/{process}/complete-item")
+    suspend fun completeItem(
+        @Path("order") orderId: Int,
+        @Path("process") processId: Int,
+    ): Response<ItemActionResponse>
+
+    /** 複数人工程のみ: 自分が作業中の1個を中断・故障中にする */
+    @POST("orders/{order}/processes/{process}/pause-item")
+    suspend fun pauseItem(
+        @Path("order") orderId: Int,
+        @Path("process") processId: Int,
+        @Body body: PauseItemRequest,
+    ): Response<ItemActionResponse>
+
+    /** 複数人工程のみ: 中断中・故障中の1個を選んで再開 */
+    @POST("orders/{order}/processes/{process}/resume-item")
+    suspend fun resumeItem(
+        @Path("order") orderId: Int,
+        @Path("process") processId: Int,
+        @Body body: ResumeItemRequest,
+    ): Response<ItemActionResponse>
+
+    /** 誤って開始した場合の取り消し（単独担当は作業中の分、複数人工程は自分が作業中の1個を未着手に戻す） */
+    @POST("orders/{order}/processes/{process}/undo-start-item")
+    suspend fun undoStartItem(
+        @Path("order") orderId: Int,
+        @Path("process") processId: Int,
+    ): Response<ItemActionResponse>
+
+    /** 単独担当のみ: 「まとめて作業する」の切り替え */
+    @PATCH("orders/{order}/processes/{process}/batch-mode")
+    suspend fun updateBatchMode(
+        @Path("order") orderId: Int,
+        @Path("process") processId: Int,
+        @Body body: BatchModeRequest,
+    ): Response<ItemActionResponse>
+
     @POST("orders/{order}/processes/{process}/defect")
     suspend fun reportDefect(
         @Path("order") orderId: Int,
@@ -92,7 +139,7 @@ interface ApiService {
         @Body body: DefectRequest,
     ): Response<ActionResponse>
 
-    /** 「追加修正が必要」（最終検査・追加修正後検査での手直し登録）。写真添付は任意 */
+    /** 「追加修正が必要」（作業中の工程から前工程の手直しを登録）。添付（写真・PDF）は任意・複数可 */
     @Multipart
     @POST("orders/{order}/processes/{process}/rework")
     suspend fun reportRework(
@@ -101,13 +148,13 @@ interface ApiService {
         @Part("target_process_id") targetProcessId: RequestBody,
         @Part("count") count: RequestBody,
         @Part("content") content: RequestBody,
-        @Part attachments: MultipartBody.Part?,
+        @Part attachments: List<MultipartBody.Part>,
     ): Response<ActionResponse>
 
     @PATCH("orders/{order}/material-confirm")
     suspend fun confirmMaterial(@Path("order") orderId: Int): Response<ActionResponse>
 
-    /** 材料到着済みにする（material_arrived_date → material_arrived） */
+    /** 材料到着済みにする（材料待ち・材料到着日 → material_arrived） */
     @PATCH("orders/{order}/material-arrived")
     suspend fun markMaterialArrived(@Path("order") orderId: Int): Response<ActionResponse>
 
@@ -118,6 +165,10 @@ interface ApiService {
 
     @GET("workers")
     suspend fun workers(): WorkersResponse
+
+    /** 作業者別の割り当て状況。checksheet.assign_worker権限が必要 */
+    @GET("worker-workload")
+    suspend fun workerWorkload(): WorkerWorkloadResponse
 
     // ===== 担当工程マスタ（管理者向け） =====
 
@@ -174,6 +225,14 @@ interface ApiService {
         @Body body: AssignWorkerRequest,
     ): Response<ActionResponse>
 
+    /** 複数人割り当て可の工程で、1人だけ追加/削除する（Api\OrderProcessController::assignWorkers） */
+    @PATCH("orders/{order}/processes/{process}/workers")
+    suspend fun assignWorkers(
+        @Path("order") orderId: Int,
+        @Path("process") processId: Int,
+        @Body body: AssignWorkersRequest,
+    ): Response<AssignWorkersResponse>
+
     @PATCH("orders/{order}/processes/{process}/deadline")
     suspend fun updateDeadline(
         @Path("order") orderId: Int,
@@ -186,7 +245,7 @@ interface ApiService {
     suspend fun batchAssignProcesses(
         @Path("order") orderId: Int,
         @Body body: BatchAssignRequest,
-    ): Response<ActionResponse>
+    ): Response<BatchAssignResponse>
 
     /** 担当工程マスタを参照し、この受注内の未割り当て工程にデフォルト担当者を自動で割り振る */
     @POST("orders/{order}/auto-assign")
@@ -278,27 +337,27 @@ interface ApiService {
         @Part screenshot: MultipartBody.Part?,
     ): Response<ActionResponse>
 
-    /** 報告一覧（管理者向け、reports.manage権限が必要） */
+    /** 報告一覧（作業者全員が閲覧可） */
     @GET("reports")
     suspend fun reports(): List<ReportDto>
 
-    /** 報告詳細（管理者向け） */
+    /** 報告詳細（作業者全員が閲覧可） */
     @GET("reports/{report}")
     suspend fun reportDetail(@Path("report") reportId: Int): ReportDto
 
-    /** 報告に添付されたスクリーンショット画像（管理者向け、認証ヘッダ付き） */
+    /** 報告に添付されたスクリーンショット画像（作業者全員が閲覧可、認証ヘッダ付き） */
     @Streaming
     @GET("reports/{report}/screenshot")
     suspend fun reportScreenshot(@Path("report") reportId: Int): Response<ResponseBody>
 
-    /** 報告の対応ステータスを変更する（管理者向け） */
+    /** 報告の対応ステータスを変更する（システム管理者ロールのみ） */
     @PATCH("reports/{report}/status")
     suspend fun updateReportStatus(
         @Path("report") reportId: Int,
         @Body body: UpdateReportStatusRequest,
     ): Response<ActionResponse>
 
-    /** 報告を削除する（管理者向け） */
+    /** 報告を削除する（システム管理者、または投稿者本人の未対応報告に限る。ReportDto.can_delete参照） */
     @DELETE("reports/{report}")
     suspend fun deleteReport(@Path("report") reportId: Int): Response<ActionResponse>
 

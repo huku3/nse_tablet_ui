@@ -270,7 +270,10 @@ private fun notificationSummary(notification: NotificationDto): String {
             val count = data.process_names?.size ?: 0
             "${data.assigned_by ?: "担当者"}さんから${orderLabel}の${count}件の工程の作業指示"
         }
-        "process_turn" -> "${orderLabel}の前工程が完了、作業開始できます"
+        // 部分完了の通知は何個目が終わったかを出す（item_labelがnullなら今までどおり）
+        "process_turn" -> data.item_label?.takeIf { it.isNotBlank() }
+            ?.let { "${orderLabel}：前工程 ${it}完了 - 作業を開始できます" }
+            ?: "${orderLabel}の前工程が完了、作業開始できます"
         "process_broken" -> "工程が故障中として報告されました"
         "process_deadline_overdue" -> "${orderLabel}の工程納期を過ぎています"
         "process_worker_leave_conflict" -> "${data.worker ?: "担当者"}さんは${orderLabel}の工程納期に休暇予定です"
@@ -365,7 +368,13 @@ private fun NotificationRow(
                     "（${data.process_names?.joinToString("・").orEmpty()}）の作業指示がきています。",
             )
         "process_turn" ->
-            Triple(Icons.Filled.SkipNext, Green600, "${orderLabel}の前工程が完了しました。作業開始できます。")
+            Triple(
+                Icons.Filled.SkipNext,
+                Green600,
+                data.item_label?.takeIf { it.isNotBlank() }
+                    ?.let { "${orderLabel}：前工程 ${it}完了 - 作業を開始できます" }
+                    ?: "${orderLabel}の前工程が完了しました。作業開始できます。",
+            )
         "process_broken" -> Triple(Icons.Filled.Build, Red500, "工程が故障中として報告されました")
         "process_deadline_overdue" ->
             Triple(Icons.Filled.EventBusy, Red500, "${orderLabel}の工程納期を過ぎています。担当者の変更・納期の見直しをご検討ください。")

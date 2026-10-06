@@ -15,7 +15,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.LazyListState
@@ -555,13 +554,9 @@ private fun DashboardContent(
     ) {
         item(key = "greeting") {
             Column(modifier = Modifier.fillMaxWidth()) {
-                val dateSentence = "${today.monthValue}月${today.dayOfMonth}日${DateUtil.weekdayKanji(today)}曜日。"
+                val dateSentence = "${today.monthValue}月${today.dayOfMonth}日${DateUtil.weekdayKanji(today)}曜日です。"
                 Text(
-                    if (flower != null) {
-                        "Hello、${userName}さん！$dateSentence\n今日の花は${flower.name}、花言葉は${flower.meaning}です。"
-                    } else {
-                        "Hello、${userName}さん！$dateSentence"
-                    },
+                    "Hello、${userName}さん！$dateSentence",
                     fontWeight = FontWeight.ExtraBold,
                     fontSize = 26.sp,
                     lineHeight = 40.sp,
@@ -569,36 +564,52 @@ private fun DashboardContent(
                     textAlign = TextAlign.Center,
                     modifier = Modifier.fillMaxWidth(),
                 )
+                if (flower != null) {
+                    Text(
+                        "今日の花は『${flower.name}』、花言葉は『${flower.meaning}』です。",
+                        fontWeight = FontWeight.Normal,
+                        fontSize = 18.sp,
+                        lineHeight = 26.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        textAlign = TextAlign.Center,
+                        modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
+                    )
+                }
             }
         }
 
         // 1度詳細を開いたお知らせは、次からダッシュボードでは目立たせない（アカウントごとに
         // サーバー側で既読管理しているため、別の端末・再ログイン後も引き継がれる）。
-        // 未読が残っていればそれぞれ個別のカードで表示し、タップで直接詳細を開く。
-        // 未読が無く、表示中のお知らせ自体はある場合は、控えめな一覧行の形でだけ残しておく。
-        // 表示中のお知らせが1件も無ければ、これまで通り履歴を確認できるプレースホルダーを出す。
+        // 未読が残っていればそれぞれ目立つ行で表示し、タップで直接詳細を開く。
+        // 未読が無く、表示中のお知らせ自体はある場合は、控えめな行の形でだけ残しておく。
+        // 表示中のお知らせが1件も無ければ「現在お知らせはありません」とだけ表示する。
+        // カードタイトルをタップすると、いずれの場合も過去のお知らせ履歴を確認できる。
         val unseenAnnouncements = announcements.filter { !it.is_read }
-        if (unseenAnnouncements.isNotEmpty()) {
-            items(unseenAnnouncements, key = { "announcement-${it.id}" }) { announcement ->
-                AnnouncementCard(
-                    announcement = announcement,
-                    onClick = { feedback(); onOpenAnnouncementDetail(announcement.id) },
-                )
-            }
-        } else if (announcements.isNotEmpty()) {
-            item(key = "announcements-seen") {
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    announcements.forEach { announcement ->
-                        SeenAnnouncementRow(
-                            announcement = announcement,
-                            onClick = { feedback(); onOpenAnnouncementDetail(announcement.id) },
-                        )
+        item(key = "announcements") {
+            DashboardCard("お知らせ", onTitleClick = { onOpenAnnouncementHistory() }) {
+                when {
+                    unseenAnnouncements.isNotEmpty() -> Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        unseenAnnouncements.forEachIndexed { index, announcement ->
+                            AnnouncementRow(
+                                announcement = announcement,
+                                unread = true,
+                                onClick = { feedback(); onOpenAnnouncementDetail(announcement.id) },
+                            )
+                            if (index != unseenAnnouncements.lastIndex) HorizontalDivider(color = Color(0xFFF3F4F6))
+                        }
                     }
+                    announcements.isNotEmpty() -> Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        announcements.forEachIndexed { index, announcement ->
+                            AnnouncementRow(
+                                announcement = announcement,
+                                unread = false,
+                                onClick = { feedback(); onOpenAnnouncementDetail(announcement.id) },
+                            )
+                            if (index != announcements.lastIndex) HorizontalDivider(color = Color(0xFFF3F4F6))
+                        }
+                    }
+                    else -> Text("現在お知らせはありません", fontSize = 13.sp, color = Color(0xFF9CA3AF))
                 }
-            }
-        } else {
-            item(key = "announcements-empty") {
-                EmptyAnnouncementCard(onClick = { feedback(); onOpenAnnouncementHistory() })
             }
         }
 
@@ -694,12 +705,23 @@ private fun DashboardContent(
                         onToggle = { feedback(); materialExpanded = !materialExpanded },
                     )
                     if (materialExpanded) {
-                        MultiDayOrderTables(
-                            dates = days.map { it.date },
-                            rowsFor = materialRowsFor,
-                            showMaterialColumn = true,
-                            onRowClick = { orderId -> feedback(); onOpenCheckSheet(orderId) },
-                        )
+                        // タップして開く詳細では、該当する受注が1件もない日は表示しない
+                        val nonZeroDates = days.filter { it.count > 0 }.map { it.date }
+                        if (nonZeroDates.isEmpty()) {
+                            Text(
+                                "対象期間に材料入荷予定の受注はありません",
+                                fontSize = 13.sp,
+                                color = Color(0xFF9CA3AF),
+                                modifier = Modifier.padding(top = 8.dp),
+                            )
+                        } else {
+                            MultiDayOrderTables(
+                                dates = nonZeroDates,
+                                rowsFor = materialRowsFor,
+                                showMaterialColumn = true,
+                                onRowClick = { orderId -> feedback(); onOpenCheckSheet(orderId) },
+                            )
+                        }
                     }
                 }
             }
@@ -715,11 +737,22 @@ private fun DashboardContent(
                         onToggle = { feedback(); shippingExpanded = !shippingExpanded },
                     )
                     if (shippingExpanded) {
-                        MultiDayOrderTables(
-                            dates = days.map { it.date },
-                            rowsFor = shippingRowsFor,
-                            onRowClick = { orderId -> feedback(); onOpenCheckSheet(orderId) },
-                        )
+                        // タップして開く詳細では、該当する受注が1件もない日は表示しない
+                        val nonZeroDates = days.filter { it.count > 0 }.map { it.date }
+                        if (nonZeroDates.isEmpty()) {
+                            Text(
+                                "対象期間に出荷予定の受注はありません",
+                                fontSize = 13.sp,
+                                color = Color(0xFF9CA3AF),
+                                modifier = Modifier.padding(top = 8.dp),
+                            )
+                        } else {
+                            MultiDayOrderTables(
+                                dates = nonZeroDates,
+                                rowsFor = shippingRowsFor,
+                                onRowClick = { orderId -> feedback(); onOpenCheckSheet(orderId) },
+                            )
+                        }
                     }
                 }
             }
@@ -737,35 +770,32 @@ private fun DashboardContent(
 }
 
 /**
- * 管理者・工場長がWeb管理画面（お知らせ管理）で作成したお知らせをカードで表示する。
+ * 「お知らせ」カード内の1件分の行。[unread]がfalse（既読済み）の時は1行に短縮し、
+ * 差出人ラベルも省いて控えめな見た目にする（[DashboardCard]の中に置くため、行自体はカードにしない）。
+ * 管理者・工場長がWeb管理画面（お知らせ管理）で作成したお知らせを表示する。
  * 緊急指定（is_urgent）のものは赤系で強調し、通常のものと見分けやすくする。
- * ダッシュボードには最新（緊急優先）の1件だけを表示し、他にも表示中のお知らせがあれば
- * [moreCount]で「ほかN件」と添える。タップすると詳細画面（本文・添付ファイル）を開く。
  * 作成・編集・既読管理はタブレット側では行わない（Web管理画面のみ）。
  */
 @Composable
-private fun AnnouncementCard(announcement: AnnouncementDto, onClick: () -> Unit) {
-    val urgent = announcement.is_urgent
+private fun AnnouncementRow(announcement: AnnouncementDto, unread: Boolean, onClick: () -> Unit) {
+    val urgent = announcement.is_urgent && unread
     val fromLabel = announcement.creator_role_label?.let { "${it}からのお知らせ" } ?: "お知らせ"
-    Card(
-        onClick = onClick,
-        colors = CardDefaults.cardColors(containerColor = if (urgent) Color(0xFFFEF2F2) else Color.White),
-        shape = RoundedCornerShape(16.dp),
-        border = if (urgent) BorderStroke(1.dp, Red500) else null,
-        modifier = Modifier.fillMaxWidth(),
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .padding(vertical = 2.dp),
+        verticalAlignment = Alignment.Top,
     ) {
-        Row(
-            modifier = Modifier.fillMaxWidth().padding(16.dp),
-            verticalAlignment = Alignment.Top,
-        ) {
-            Icon(
-                Icons.Filled.Campaign,
-                contentDescription = null,
-                tint = if (urgent) Red500 else MaterialTheme.colorScheme.primary,
-                modifier = Modifier.size(22.dp),
-            )
-            Spacer(Modifier.width(10.dp))
-            Column(modifier = Modifier.weight(1f)) {
+        Icon(
+            Icons.Filled.Campaign,
+            contentDescription = null,
+            tint = if (urgent) Red500 else if (unread) MaterialTheme.colorScheme.primary else Color(0xFF9CA3AF),
+            modifier = Modifier.size(if (unread) 20.dp else 16.dp),
+        )
+        Spacer(Modifier.width(8.dp))
+        Column(modifier = Modifier.weight(1f)) {
+            if (unread) {
                 Text(
                     fromLabel,
                     fontSize = 11.sp,
@@ -773,89 +803,18 @@ private fun AnnouncementCard(announcement: AnnouncementDto, onClick: () -> Unit)
                     color = if (urgent) Red500 else Color(0xFF9CA3AF),
                 )
                 Spacer(Modifier.height(2.dp))
-                Text(
-                    announcement.message,
-                    fontSize = 14.sp,
-                    fontWeight = if (urgent) FontWeight.Bold else FontWeight.Normal,
-                    color = if (urgent) Color(0xFFB91C1C) else MaterialTheme.colorScheme.onSurface,
-                    maxLines = 2,
-                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
-                )
             }
-        }
-    }
-}
-
-/**
- * 表示中のお知らせが全て既読（詳細を開いたことがある）の場合に使う、控えめな一覧行。
- * [AnnouncementCard]ほど目立たせる必要は無いが、内容自体は引き続き確認できるようにしておく。
- */
-@Composable
-private fun SeenAnnouncementRow(announcement: AnnouncementDto, onClick: () -> Unit) {
-    Card(
-        onClick = onClick,
-        colors = CardDefaults.cardColors(containerColor = Color.White),
-        shape = RoundedCornerShape(12.dp),
-        modifier = Modifier.fillMaxWidth(),
-    ) {
-        Row(
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 10.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Icon(
-                Icons.Filled.Campaign,
-                contentDescription = null,
-                tint = Color(0xFF9CA3AF),
-                modifier = Modifier.size(16.dp),
-            )
-            Spacer(Modifier.width(8.dp))
             Text(
                 announcement.message,
-                fontSize = 13.sp,
-                color = Color(0xFF6B7280),
-                maxLines = 1,
+                fontSize = if (unread) 14.sp else 13.sp,
+                fontWeight = if (urgent) FontWeight.Bold else FontWeight.Normal,
+                color = when {
+                    urgent -> Color(0xFFB91C1C)
+                    unread -> MaterialTheme.colorScheme.onSurface
+                    else -> Color(0xFF6B7280)
+                },
+                maxLines = if (unread) 2 else 1,
                 overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
-                modifier = Modifier.weight(1f),
-            )
-        }
-    }
-}
-
-/**
- * 現在表示中のお知らせが1件も無い時に代わりに出す、控えめなプレースホルダー。
- * これが無いと「お知らせを見に行く入り口」自体がダッシュボードから消えてしまうため、
- * 常にこの枠だけは表示しておき、タップすれば過去のお知らせ履歴を確認できるようにする。
- */
-@Composable
-private fun EmptyAnnouncementCard(onClick: () -> Unit) {
-    Card(
-        onClick = onClick,
-        colors = CardDefaults.cardColors(containerColor = Color.White),
-        shape = RoundedCornerShape(16.dp),
-        modifier = Modifier.fillMaxWidth(),
-    ) {
-        Row(
-            modifier = Modifier.fillMaxWidth().padding(16.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Icon(
-                Icons.Filled.Campaign,
-                contentDescription = null,
-                tint = Color(0xFF9CA3AF),
-                modifier = Modifier.size(22.dp),
-            )
-            Spacer(Modifier.width(10.dp))
-            Text(
-                "現在お知らせはありません",
-                fontSize = 13.sp,
-                color = Color(0xFF9CA3AF),
-                modifier = Modifier.weight(1f),
-            )
-            Icon(
-                Icons.AutoMirrored.Filled.KeyboardArrowRight,
-                contentDescription = "お知らせ履歴を見る",
-                tint = Color(0xFF9CA3AF),
-                modifier = Modifier.size(18.dp),
             )
         }
     }

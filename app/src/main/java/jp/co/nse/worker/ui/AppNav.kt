@@ -27,7 +27,6 @@ import jp.co.nse.worker.ui.login.LoginScreen
 import jp.co.nse.worker.ui.mypage.MyPageScreen
 import jp.co.nse.worker.ui.processassignment.ProcessAssignmentScreen
 import jp.co.nse.worker.ui.report.ReportDetailScreen
-import jp.co.nse.worker.ui.report.ReportListScreen
 import jp.co.nse.worker.ui.report.ReportScreen
 import jp.co.nse.worker.ui.scandata.ScanDataScreen
 import jp.co.nse.worker.ui.settings.SettingsScreen
@@ -49,7 +48,6 @@ object Routes {
     const val ORDER_INQUIRY = "order-inquiry"
     const val SCAN_DATA = "scan-data"
     const val REPORT = "report"
-    const val REPORT_LIST = "report-list"
     const val REPORT_DETAIL = "report-detail/{reportId}"
     const val ANNOUNCEMENT_LIST = "announcement-list"
     const val ANNOUNCEMENT_DETAIL = "announcement-detail/{announcementId}"
@@ -116,10 +114,8 @@ fun AppNav() {
     container.openOrderInquiry = { navController.navigateSafely(Routes.ORDER_INQUIRY) }
     // 権限があるアカウントは、どの画面のヘッダーからでもスキャンデータ画面へ遷移できるようにする
     container.openScanData = { navController.navigateSafely(Routes.SCAN_DATA) }
-    // どの画面のヘッダーからでも不具合・要望の報告画面へ遷移できるようにする
+    // どの画面のヘッダーからでもシステム不具合・要望の報告画面（報告一覧タブも含む）へ遷移できるようにする
     container.openReport = { navController.navigateSafely(Routes.REPORT) }
-    // 権限があるアカウントは、どの画面のヘッダーからでも報告一覧へ遷移できるようにする
-    container.openReportList = { navController.navigateSafely(Routes.REPORT_LIST) }
     // どの画面のヘッダーロゴからでも作業一覧（ホーム）まで一気に戻れるようにする
     container.openHome = {
         navController.navigateSafely(Routes.home()) {
@@ -347,14 +343,6 @@ fun AppNav() {
 
         composable(Routes.REPORT) {
             ReportScreen(
-                onBack = { navController.popBackStackSafely() },
-                onOpenDetail = { reportId -> navController.navigateSafely(Routes.reportDetail(reportId)) },
-                onLogout = logout,
-            )
-        }
-
-        composable(Routes.REPORT_LIST) {
-            ReportListScreen(
                 onBack = { navController.popBackStackSafely() },
                 onOpenDetail = { reportId -> navController.navigateSafely(Routes.reportDetail(reportId)) },
                 onLogout = logout,

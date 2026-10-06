@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -77,6 +78,7 @@ import jp.co.nse.worker.ui.components.NotificationBell
 import jp.co.nse.worker.ui.components.OrderStatusBadge
 import jp.co.nse.worker.ui.components.ScrollToBottomFab
 import jp.co.nse.worker.ui.components.ScrollToTopFab
+import jp.co.nse.worker.ui.theme.Amber500
 import jp.co.nse.worker.ui.theme.Emerald500
 import jp.co.nse.worker.ui.theme.Green600
 import jp.co.nse.worker.ui.theme.Orange400
@@ -84,6 +86,7 @@ import jp.co.nse.worker.ui.theme.Indigo700
 import jp.co.nse.worker.ui.theme.Red500
 import jp.co.nse.worker.util.AutoRefreshEffect
 import jp.co.nse.worker.util.DateUtil
+import jp.co.nse.worker.util.DeliveryUrgency
 import jp.co.nse.worker.util.rememberClickFeedback
 import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.launch
@@ -100,6 +103,16 @@ class TaskListViewModel(private val repo: WorkerRepository) : ViewModel() {
         private set
     var lookingUp by mutableStateOf(false)
         private set
+    var holidayDates by mutableStateOf<Set<String>>(emptySet())
+        private set
+    var overrideDates by mutableStateOf<Set<String>>(emptySet())
+        private set
+
+    /** 受注の客先納期までの営業日数（本日=0、未来はプラス、超過はマイナス）。カードの色分けに使う */
+    fun businessDaysFor(order: OrderBriefDto): Int? {
+        val delivery = DateUtil.parse(order.delivery_date) ?: return null
+        return DateUtil.businessDaysBetween(LocalDate.now(), delivery, holidayDates, overrideDates)
+    }
 
     /** バーコード値から担当工程を特定し、見つかれば [onFound] にprocess_idを渡す */
     fun lookupBarcode(code: String, onFound: (Int) -> Unit, onError: (String) -> Unit) {
@@ -125,7 +138,30 @@ class TaskListViewModel(private val repo: WorkerRepository) : ViewModel() {
                 is ApiResult.Failure -> error = result.message
             }
             loading = false
+            loadHolidays()
         }
+    }
+
+    private suspend fun loadHolidays() {
+        val today = LocalDate.now()
+        val fiscalYears = setOf(
+            DateUtil.fiscalYearOf(today.minusDays(14)),
+            DateUtil.fiscalYearOf(today),
+            DateUtil.fiscalYearOf(today.plusDays(14)),
+        )
+        val holidays = mutableSetOf<String>()
+        val overrides = mutableSetOf<String>()
+        fiscalYears.forEach { fy ->
+            when (val result = repo.holidayCalendar(fy)) {
+                is ApiResult.Success -> {
+                    holidays += result.data.holidays
+                    overrides += result.data.overrides
+                }
+                is ApiResult.Failure -> { /* 取得失敗時は土日のみで営業日判定する */ }
+            }
+        }
+        holidayDates = holidays
+        overrideDates = overrides
     }
 }
 
@@ -285,6 +321,7 @@ fun TaskListScreen(
                         completed = vm.completed,
                         currentUserName = userName,
                         onOpenTask = onOpenTask,
+                        businessDaysFor = vm::businessDaysFor,
                     )
                 }
             }
@@ -377,6 +414,7 @@ private fun TaskList(
     completed: List<CompletedTaskDto>,
     currentUserName: String,
     onOpenTask: (Int) -> Unit,
+    businessDaysFor: (OrderBriefDto) -> Int?,
 ) {
     // 工程の進行状況（taskProgress）はソート内の比較やカード側でも参照するため、
     // データが変わった時だけ1回計算してマップにしておく（スクロールの再コンポーズの
@@ -428,6 +466,7 @@ private fun TaskList(
                     currentUserName = currentUserName,
                     progressByTaskId = progressByTaskId,
                     onOpenTask = onOpenTask,
+                    businessDaysRemaining = businessDaysFor(group.order),
                 )
             }
         }
@@ -554,9 +593,16 @@ private data class TaskProgress(
     val total: Int,
 )
 
+/**
+ * 複数人割り当て可の工程は、工程全体の集計ステータスではなく自分の参加状況を見る
+ * （他の人が作業中でも、自分がまだ未着手なら「待機」のまま扱う）
+ */
+private fun TaskItemDto.effectiveStatus(): String =
+    if (is_multi_worker) my_status ?: WorkStatus.WAITING else status
+
 private fun taskProgress(task: TaskItemDto): TaskProgress {
     val sorted = task.all_processes.sortedBy { it.sort_order }
-    val isWaiting = task.status == WorkStatus.WAITING
+    val isWaiting = task.effectiveStatus() == WorkStatus.WAITING
     val priorDone = sorted
         .filter { it.sort_order < task.sort_order }
         .all { it.status == WorkStatus.COMPLETED }
@@ -577,18 +623,56 @@ private fun OrderTaskGroupCard(
     currentUserName: String,
     progressByTaskId: Map<Int, TaskProgress>,
     onOpenTask: (Int) -> Unit,
+    businessDaysRemaining: Int?,
 ) {
     val order = group.order
     val anyCanStartNow = group.tasks.any { progressByTaskId[it.id]?.canStartNow == true }
+    // 客先納期までの営業日数に応じてカードを色分けする：納期超過～1営業日以内は赤、2～3営業日は黄。
+    // 左端のバーだけだと目立たないため、カード全体の背景・枠線も色付けして一目で分かるようにする
+    // （急ぎの納期の方が「今すぐ着手できる」より優先度が高いため、両方に該当する場合は色分けを優先する）
+    val urgency = DateUtil.deliveryUrgency(businessDaysRemaining)
+    val accentColor = when (urgency) {
+        DeliveryUrgency.CRITICAL -> Red500
+        DeliveryUrgency.WARNING -> Amber500
+        DeliveryUrgency.NONE -> null
+    }
+    val cardBackground = when (urgency) {
+        DeliveryUrgency.CRITICAL -> Color(0xFFFEF2F2)
+        DeliveryUrgency.WARNING -> Color(0xFFFFFBEB)
+        DeliveryUrgency.NONE -> if (anyCanStartNow) Color(0xFFECFDF5) else Color.White
+    }
 
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(
-            containerColor = if (anyCanStartNow) Color(0xFFECFDF5) else Color.White,
-        ),
-        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
-        shape = RoundedCornerShape(16.dp),
-    ) {
+    Row(modifier = Modifier.fillMaxWidth().height(androidx.compose.foundation.layout.IntrinsicSize.Min)) {
+        if (accentColor != null) {
+            Box(
+                modifier = Modifier
+                    .fillMaxHeight()
+                    .width(5.dp)
+                    .clip(RoundedCornerShape(topStart = 16.dp, bottomStart = 16.dp))
+                    .background(accentColor),
+            )
+        }
+        Card(
+            modifier = Modifier.weight(1f)
+                .then(
+                    if (accentColor != null) {
+                        Modifier.border(
+                            1.dp,
+                            accentColor.copy(alpha = 0.5f),
+                            RoundedCornerShape(topStart = 0.dp, topEnd = 16.dp, bottomEnd = 16.dp, bottomStart = 0.dp),
+                        )
+                    } else {
+                        Modifier
+                    },
+                ),
+            colors = CardDefaults.cardColors(containerColor = cardBackground),
+            elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+            shape = if (accentColor != null) {
+                RoundedCornerShape(topStart = 0.dp, topEnd = 16.dp, bottomEnd = 16.dp, bottomStart = 0.dp)
+            } else {
+                RoundedCornerShape(16.dp)
+            },
+        ) {
         Column(Modifier.padding(16.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
@@ -652,6 +736,7 @@ private fun OrderTaskGroupCard(
                 }
             }
         }
+        }
     }
 }
 
@@ -659,7 +744,7 @@ private fun OrderTaskGroupCard(
 @Composable
 private fun OtherProcessChip(task: TaskItemDto, onClick: () -> Unit) {
     val feedback = rememberClickFeedback()
-    val color = statusColor(task.status)
+    val color = statusColor(task.effectiveStatus())
     Box(
         modifier = Modifier
             .clip(RoundedCornerShape(50))
@@ -688,9 +773,9 @@ private fun TaskProcessRow(
     onOpenTask: (Int) -> Unit,
 ) {
     val feedback = rememberClickFeedback()
-    val statusColor = statusColor(task.status)
+    val statusColor = statusColor(task.effectiveStatus())
     val prog = progress
-    val isWaiting = task.status == WorkStatus.WAITING
+    val isWaiting = task.effectiveStatus() == WorkStatus.WAITING
     // 前工程待ちで自分ではまだ着手できない工程をタップした場合は、自分の担当工程の中で
     // 今すぐ着手できるものがあればそちらへ誘導する（他人の担当工程には絶対に誘導しない）
     val targetProcessId = if (isWaiting && !prog.canStartNow) redirectTaskId ?: task.id else task.id
@@ -711,11 +796,15 @@ private fun TaskProcessRow(
                 Box(Modifier.size(8.dp).clip(CircleShape).background(statusColor))
                 Spacer(Modifier.width(8.dp))
                 Text(task.process_name, fontWeight = FontWeight.SemiBold, fontSize = 17.sp)
+                if (task.is_multi_worker) {
+                    Spacer(Modifier.width(6.dp))
+                    Text("複数人", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color(0xFF6366F1))
+                }
             }
             when {
                 isWaiting && prog.canStartNow -> Pill("開始できます", Green600, icon = Icons.Filled.Check)
                 isWaiting -> Pill("前工程待ち", AmberDark)
-                else -> StatusChip(status = task.status, color = statusColor)
+                else -> StatusChip(status = task.effectiveStatus(), color = statusColor)
             }
         }
 

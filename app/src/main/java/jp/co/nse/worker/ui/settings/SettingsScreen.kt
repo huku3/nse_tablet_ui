@@ -435,15 +435,24 @@ private fun FontPreviewCard(userName: String, today: LocalDate, modifier: Modifi
                 .background(MaterialTheme.colorScheme.surface)
                 .padding(20.dp),
         ) {
-            val dateSentence = "${today.monthValue}月${today.dayOfMonth}日${DateUtil.weekdayKanji(today)}曜日。"
+            val dateSentence = "${today.monthValue}月${today.dayOfMonth}日${DateUtil.weekdayKanji(today)}曜日です。"
             Text(
-                "Hello、${userName}さん！$dateSentence\n本日も安全第一で作業をお願いします。",
+                "Hello、${userName}さん！$dateSentence",
                 fontWeight = FontWeight.ExtraBold,
                 fontSize = 26.sp,
                 lineHeight = 40.sp,
                 color = MaterialTheme.colorScheme.onSurface,
                 textAlign = androidx.compose.ui.text.style.TextAlign.Center,
                 modifier = Modifier.fillMaxWidth(),
+            )
+            Text(
+                "本日も安全第一で作業をお願いします。",
+                fontWeight = FontWeight.Normal,
+                fontSize = 18.sp,
+                lineHeight = 26.sp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
             )
         }
     }

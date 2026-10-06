@@ -109,9 +109,11 @@ class AssignmentDetailViewModel(
         private set
     private var processAssignments by mutableStateOf(ProcessAssignmentsResponse())
     /**
-     * 担当者選択ダイアログで選択不可にする対象日（工程納期があればその日、未設定なら本日）の
-     * 休暇の作業者名。[loadPickerLeaveWorkers]でダイアログを開くたびに対象日を指定して取得する
-     * （先に工程納期を設定してから担当者を選ぶ順番でも正しく判定できるようにするため）
+     * 担当者選択ダイアログで選択不可にする対象日（工程納期が決まっている場合のみ）の休暇の
+     * 作業者名。[loadPickerLeaveWorkers]でダイアログを開くたびに対象日を指定して取得する
+     * （先に工程納期を設定してから担当者を選ぶ順番でも正しく判定できるようにするため）。
+     * 工程納期が未設定の間は判定自体を行わない（実際に作業する日と無関係な「本日」を基準に
+     * すると、その日だけ休みの担当者を誤って選択不可にしてしまうため）
      */
     var pickerLeaveWorkerNames by mutableStateOf<Set<String>>(emptySet())
         private set
@@ -124,6 +126,17 @@ class AssignmentDetailViewModel(
         private set
     private var loadedDeadlineLeaveMonth: YearMonth? = null
     var message by mutableStateOf<String?>(null)
+
+    /**
+     * 休暇と重複した担当者×工程納期の警告。[message]と違って自動で消えず、
+     * ユーザーが閉じるまで表示し続ける必要があるため別の状態にしている
+     */
+    var leaveWarning by mutableStateOf<String?>(null)
+        private set
+
+    fun consumeLeaveWarning() {
+        leaveWarning = null
+    }
 
     var holidayDates by mutableStateOf<Set<String>>(emptySet())
         private set
@@ -372,6 +385,11 @@ class AssignmentDetailViewModel(
                     pendingWorkers = emptyMap()
                     pendingDeadlines = emptyMap()
                     editMode = false
+                    // 休暇と重複した担当者×工程納期があれば、保存はそのまま完了させたうえで警告だけ知らせる。
+                    // 見落とさないよう、閉じるまで消えないSnackbarで表示する
+                    if (result.data.isNotEmpty()) {
+                        leaveWarning = result.data.joinToString("\n")
+                    }
                     reloadOrder()
                     onSuccess()
                 }
@@ -385,6 +403,30 @@ class AssignmentDetailViewModel(
         when (val result = repo.orderDetail(orderId)) {
             is ApiResult.Success -> order = result.data
             is ApiResult.Failure -> message = result.message
+        }
+    }
+
+    var multiWorkerBusy by mutableStateOf(false)
+        private set
+
+    /**
+     * 複数人割り当て可の工程で、1人を追加/削除する。編集モード中の他の変更（担当者・工程納期）とは
+     * 異なりこの画面内では保持せず、タップのたびに即座にサーバーへ反映する
+     * （Web版のチェックシート画面と同じ挙動。一括保存APIは単独工程の1人分の担当者しか
+     * 扱えないため、複数人工程はこの専用エンドポイントで個別に管理する）。
+     */
+    fun toggleMultiWorker(process: AssignProcessDto, workerName: String) {
+        if (multiWorkerBusy) return
+        val order = order ?: return
+        val alreadyAssigned = process.assigned_workers.any { it.name == workerName }
+        val action = if (alreadyAssigned) "remove" else "add"
+        viewModelScope.launch {
+            multiWorkerBusy = true
+            when (val result = repo.toggleProcessWorker(order.id, process.id, action, workerName)) {
+                is ApiResult.Success -> reloadOrder()
+                is ApiResult.Failure -> message = result.message
+            }
+            multiWorkerBusy = false
         }
     }
 }
@@ -409,20 +451,47 @@ fun AssignmentDetailScreen(
     val snackbar = remember { SnackbarHostState() }
     var pickerProcess by remember { mutableStateOf<AssignProcessDto?>(null) }
     var deadlineProcess by remember { mutableStateOf<AssignProcessDto?>(null) }
+    // 複数人割り当て可の工程を編集中に開くダイアログ（単独工程のpickerProcessとは別扱い）
+    var multiWorkerProcess by remember { mutableStateOf<AssignProcessDto?>(null) }
     // 工程行をタップして担当者選択→工程納期カレンダーと連続で進める場合にtrueにする。
     // 個別の「変更」ボタンから開いた場合はfalseのままにして、単独の編集で完結させる
     var wizardActive by remember { mutableStateOf(false) }
     var showAutoAssignConfirm by remember { mutableStateOf(false) }
-    // 自動割り振り直後、割り振った工程の工程納期を1件ずつ続けて選ばせるための待ち行列
-    // （deadlineProcessが1件分の表示を担当し、確定・キャンセルのたびにここから次を取り出す）
-    var autoAssignDeadlineQueue by remember { mutableStateOf<List<AssignProcessDto>>(emptyList()) }
+    // 自動割り振り直後、割り振った工程の工程納期を1件ずつ続けて選ばせるための待ち行列。
+    // deadlineProcessが表示中の1件を担当し、インデックスで前後の工程に移動できるようにする
+    var autoAssignQueue by remember { mutableStateOf<List<AssignProcessDto>>(emptyList()) }
+    var autoAssignQueueIndex by remember { mutableStateOf(0) }
     val userName = rememberCurrentUserName()
+
+    // 待ち行列内の指定インデックスの工程納期ダイアログへ移動する。範囲外（末尾の次）なら連続選択を終了する
+    fun goToAutoAssignQueueIndex(index: Int) {
+        val proc = autoAssignQueue.getOrNull(index)
+        if (proc != null) {
+            autoAssignQueueIndex = index
+            deadlineProcess = proc
+        } else {
+            autoAssignQueue = emptyList()
+            autoAssignQueueIndex = 0
+            deadlineProcess = null
+        }
+    }
 
     LaunchedEffect(Unit) { vm.load() }
     LaunchedEffect(vm.message) {
         vm.message?.let {
-            snackbar.showSnackbar(it)
+            snackbar.showSnackbar(it, duration = androidx.compose.material3.SnackbarDuration.Long)
             vm.message = null
+        }
+    }
+    LaunchedEffect(vm.leaveWarning) {
+        vm.leaveWarning?.let {
+            // 休暇重複の警告は見落とし防止のため、閉じるまで消えないようにする
+            snackbar.showSnackbar(
+                it,
+                actionLabel = "閉じる",
+                duration = androidx.compose.material3.SnackbarDuration.Indefinite,
+            )
+            vm.consumeLeaveWarning()
         }
     }
     Scaffold(
@@ -584,7 +653,8 @@ fun AssignmentDetailScreen(
                                                 pickerProcess = null
                                                 deadlineProcess = null
                                                 wizardActive = false
-                                                autoAssignDeadlineQueue = emptyList()
+                                                autoAssignQueue = emptyList()
+                                                autoAssignQueueIndex = 0
                                             },
                                             enabled = !vm.batchSaving,
                                             shape = RoundedCornerShape(12.dp),
@@ -671,8 +741,20 @@ fun AssignmentDetailScreen(
                                 deadline = vm.effectiveDeadline(proc),
                                 editable = vm.editMode,
                                 isDirty = vm.isDirty(proc.id),
-                                onTapRow = { wizardActive = true; pickerProcess = proc },
-                                onChangeWorker = { wizardActive = false; pickerProcess = proc },
+                                onTapRow = {
+                                    if (proc.is_multi_worker) {
+                                        multiWorkerProcess = proc
+                                    } else {
+                                        wizardActive = true; pickerProcess = proc
+                                    }
+                                },
+                                onChangeWorker = {
+                                    if (proc.is_multi_worker) {
+                                        multiWorkerProcess = proc
+                                    } else {
+                                        wizardActive = false; pickerProcess = proc
+                                    }
+                                },
                                 onChangeDeadline = { wizardActive = false; deadlineProcess = proc },
                             )
                         }
@@ -699,11 +781,15 @@ fun AssignmentDetailScreen(
 
     pickerProcess?.let { proc ->
         vm.order?.let { order ->
-            // 既に工程納期が設定されていれば、その日を基準に休暇を判定する（未設定なら本日）。
-            // 先に工程納期を選んでから担当者を選ぶ順番でも、休暇の担当者を正しく警告するため
-            val leaveCheckDate = DateUtil.parse(proc.process_deadline) ?: LocalDate.now()
-            androidx.compose.runtime.LaunchedEffect(proc.id, leaveCheckDate) {
-                vm.loadPickerLeaveWorkers(leaveCheckDate)
+            // 工程納期が決まっていれば、その日を基準に休暇を判定する。
+            // 未設定の場合は「本日」を仮の基準にすると、実際に作業する日とは関係ない
+            // 今日だけ休みの担当者を誤って選択不可にしてしまうため、判定自体を行わない
+            // （工程納期を選ぶ画面で、その担当者の休暇予定日は別途選択不可にしている）
+            val leaveCheckDate = vm.effectiveDeadline(proc)
+            if (leaveCheckDate != null) {
+                androidx.compose.runtime.LaunchedEffect(proc.id, leaveCheckDate) {
+                    vm.loadPickerLeaveWorkers(leaveCheckDate)
+                }
             }
             WorkerPickerDialog(
                 order = order,
@@ -711,7 +797,7 @@ fun AssignmentDetailScreen(
                 current = vm.effectiveWorker(proc),
                 workers = vm.eligibleWorkers(proc.process_name),
                 saving = false,
-                leaveWorkerNames = vm.pickerLeaveWorkerNames,
+                leaveWorkerNames = if (leaveCheckDate != null) vm.pickerLeaveWorkerNames else emptySet(),
                 onSelect = { name ->
                     pickerProcess = null
                     // 編集モード中はサーバーへは送らず、保存を押すまでこの画面内だけで保持する
@@ -720,6 +806,22 @@ fun AssignmentDetailScreen(
                     if (wizardActive) deadlineProcess = proc
                 },
                 onDismiss = { wizardActive = false; pickerProcess = null },
+            )
+        }
+    }
+
+    multiWorkerProcess?.let { proc ->
+        vm.order?.let { order ->
+            // 追加/削除のたびにvm.reloadOrder()で最新化されるので、開いた時点のprocではなく
+            // vm.order側の最新の状態を見る（ダイアログを開いたままバッジが正しく更新されるように）
+            val liveProcess = order.processes.firstOrNull { it.id == proc.id } ?: proc
+            MultiWorkerPickerDialog(
+                order = order,
+                process = liveProcess,
+                workers = vm.eligibleWorkers(liveProcess.process_name),
+                busy = vm.multiWorkerBusy,
+                onToggle = { workerName -> vm.toggleMultiWorker(liveProcess, workerName) },
+                onDismiss = { multiWorkerProcess = null },
             )
         }
     }
@@ -753,17 +855,24 @@ fun AssignmentDetailScreen(
                     vm.stageDeadline(proc.id, date)
                     wizardActive = false
                     // 自動割り振り直後の連続選択中なら、続けて次の工程の工程納期を選ばせる
-                    val next = autoAssignDeadlineQueue.firstOrNull()
-                    autoAssignDeadlineQueue = autoAssignDeadlineQueue.drop(1)
-                    deadlineProcess = next
+                    if (autoAssignQueue.isNotEmpty()) goToAutoAssignQueueIndex(autoAssignQueueIndex + 1) else deadlineProcess = null
                 },
                 onDismiss = {
+                    // 連続選択中もそこで打ち切る（工程単位でスキップしたい場合は「次の工程」を使う）
                     wizardActive = false
-                    // 自動割り振り連続選択中なら、この工程はスキップして次に進む
-                    // （手動でタップして開いた単独編集の場合はキューが空なのでそのまま閉じる）
-                    val next = autoAssignDeadlineQueue.firstOrNull()
-                    autoAssignDeadlineQueue = autoAssignDeadlineQueue.drop(1)
-                    deadlineProcess = next
+                    autoAssignQueue = emptyList()
+                    autoAssignQueueIndex = 0
+                    deadlineProcess = null
+                },
+                onPrevious = if (autoAssignQueue.isNotEmpty() && autoAssignQueueIndex > 0) {
+                    { goToAutoAssignQueueIndex(autoAssignQueueIndex - 1) }
+                } else {
+                    null
+                },
+                onNext = if (autoAssignQueue.isNotEmpty()) {
+                    { goToAutoAssignQueueIndex(autoAssignQueueIndex + 1) }
+                } else {
+                    null
                 },
             )
         }
@@ -776,7 +885,8 @@ fun AssignmentDetailScreen(
                 val needsDeadline = vm.stageAutoAssign()
                 if (needsDeadline.isNotEmpty()) {
                     wizardActive = false
-                    autoAssignDeadlineQueue = needsDeadline.drop(1)
+                    autoAssignQueue = needsDeadline
+                    autoAssignQueueIndex = 0
                     deadlineProcess = needsDeadline.first()
                 }
             },
@@ -864,6 +974,7 @@ private fun OrderContextMiniLabel(label: String, value: String, unit: String? = 
     }
 }
 
+@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 @Composable
 private fun ProcessAssignRow(
     process: AssignProcessDto,
@@ -921,12 +1032,37 @@ private fun ProcessAssignRow(
                         }
                     }
                     Spacer(Modifier.height(4.dp))
-                    if (hasWorker) {
+                    if (process.is_multi_worker) {
+                        if (process.assigned_workers.isEmpty()) {
+                            Text("未割当（複数人可）", fontSize = 14.sp, color = Color(0xFF9CA3AF))
+                        } else {
+                            androidx.compose.foundation.layout.FlowRow(
+                                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                verticalArrangement = Arrangement.spacedBy(4.dp),
+                            ) {
+                                process.assigned_workers.forEach { w ->
+                                    Box(
+                                        modifier = Modifier
+                                            .clip(RoundedCornerShape(50))
+                                            .background(if (isCompleted) Color(0xFFD1FAE5) else Color(0xFFE0E7FF))
+                                            .padding(horizontal = 10.dp, vertical = 4.dp),
+                                    ) {
+                                        Text(
+                                            w.name ?: "?",
+                                            fontSize = 14.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = if (isCompleted) Color(0xFF065F46) else Color(0xFF3730A3),
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    } else if (hasWorker) {
                         Text(
                             "担当: $workerName",
-                            fontSize = 14.sp,
+                            fontSize = 19.sp,
                             color = if (isCompleted) Color(0xFF10B981) else Green700,
-                            fontWeight = FontWeight.SemiBold,
+                            fontWeight = FontWeight.Bold,
                         )
                     } else {
                         Text("未割当", fontSize = 14.sp, color = Color(0xFF9CA3AF))
@@ -946,7 +1082,11 @@ private fun ProcessAssignRow(
                     }
                 } else if (editable) {
                     TextButton(onClick = { feedback(); onChangeWorker() }) {
-                        Text(if (hasWorker) "変更" else "割り当て", color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
+                        Text(
+                            if (process.is_multi_worker) "編集" else if (hasWorker) "変更" else "割り当て",
+                            color = MaterialTheme.colorScheme.primary,
+                            fontWeight = FontWeight.Bold,
+                        )
                     }
                 }
             }
@@ -1017,6 +1157,57 @@ fun WorkerPickerDialog(
         dismissButton = {
             TextButton(onClick = { feedback(); onDismiss() }, enabled = !saving) {
                 Text("キャンセル", color = Color(0xFF6B7280))
+            }
+        },
+    )
+}
+
+/**
+ * 複数人割り当て可の工程用のダイアログ。単独工程のWorkerPickerDialogと違い、
+ * タップのたびに追加/削除をその場でサーバーへ反映してダイアログは開いたままにする
+ * （Web版のチェックシート画面のポップオーバーと同じ操作感）。何人でも選べる。
+ */
+@Composable
+fun MultiWorkerPickerDialog(
+    order: OrderAssignDto,
+    process: AssignProcessDto,
+    workers: List<WorkerDto>,
+    busy: Boolean,
+    onToggle: (String) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val feedback = rememberClickFeedback()
+    val assignedNames = process.assigned_workers.mapNotNull { it.name }.toSet()
+    AlertDialog(
+        onDismissRequest = { if (!busy) onDismiss() },
+        title = { Text("「${process.process_name}」の担当者", fontWeight = FontWeight.Bold, fontSize = 17.sp) },
+        text = {
+            Column {
+                OrderContextCard(order)
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    "複数人選べます（チェックが付いている人が選択中）",
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.primary,
+                )
+                Spacer(Modifier.height(4.dp))
+                LazyColumn(modifier = Modifier.heightIn(max = 300.dp)) {
+                    items(workers, key = { it.id }) { w ->
+                        WorkerRow(
+                            name = w.name,
+                            color = parseHex(w.color),
+                            selected = w.name in assignedNames,
+                            onClick = { feedback(); onToggle(w.name) },
+                        )
+                    }
+                }
+            }
+        },
+        confirmButton = {},
+        dismissButton = {
+            TextButton(onClick = { feedback(); onDismiss() }, enabled = !busy) {
+                Text("閉じる", color = Color(0xFF6B7280))
             }
         },
     )

@@ -36,6 +36,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -66,7 +67,12 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
-/** 報告詳細（管理者向け）。スクリーンショットが添付されている場合は画像として表示する */
+/**
+ * 報告詳細。スクリーンショットが添付されている場合は画像として表示する。閲覧は作業者全員が可能。
+ * 対応ステータスの変更はシステム管理者ロールの人のみ表示・操作できる。削除ボタンは、
+ * システム管理者に加えて、自分が投稿した報告で対応ステータスがまだ「未対応」のままであれば
+ * 投稿者本人にも表示する（サーバー側のcan_delete判定に従う。ReportDto.can_delete参照）
+ */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ReportDetailScreen(
@@ -79,6 +85,8 @@ fun ReportDetailScreen(
     val scope = rememberCoroutineScope()
     val feedback = rememberClickFeedback()
     val userName = rememberCurrentUserName()
+    // 削除・対応ステータス変更はシステム管理者ロールの人のみ
+    val canManageReports by container.settings.canManageReportsFlow.collectAsState(initial = false)
 
     var loading by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
@@ -159,7 +167,7 @@ fun ReportDetailScreen(
                 title = {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         HeaderTitle("報告詳細")
-                        if (report != null) {
+                        if (report?.can_delete == true) {
                             IconButton(onClick = { feedback(); showDeleteConfirm = true }, modifier = Modifier.size(36.dp)) {
                                 Icon(Icons.Filled.Delete, contentDescription = "削除", tint = MaterialTheme.colorScheme.onPrimary)
                             }
@@ -235,15 +243,19 @@ fun ReportDetailScreen(
                             fontSize = 14.sp,
                             modifier = Modifier.padding(top = 20.dp, bottom = 8.dp),
                         )
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            ReportStatus.entries.forEach { option ->
-                                FilterChip(
-                                    selected = r.status == option.apiValue,
-                                    onClick = { changeStatus(option) },
-                                    enabled = !statusUpdating,
-                                    label = { Text(option.label) },
-                                )
+                        if (canManageReports) {
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                ReportStatus.entries.forEach { option ->
+                                    FilterChip(
+                                        selected = r.status == option.apiValue,
+                                        onClick = { changeStatus(option) },
+                                        enabled = !statusUpdating,
+                                        label = { Text(option.label) },
+                                    )
+                                }
                             }
+                        } else {
+                            StatusChip(r.status_label ?: r.status, statusColor(r.status))
                         }
 
                         Text(

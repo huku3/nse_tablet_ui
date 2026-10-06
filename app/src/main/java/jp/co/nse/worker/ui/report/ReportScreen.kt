@@ -6,6 +6,7 @@ import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.layout.Arrangement
@@ -28,6 +29,7 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Logout
 import androidx.compose.material.icons.filled.AddPhotoAlternate
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -105,6 +107,7 @@ fun ReportScreen(
     var error by remember { mutableStateOf<String?>(null) }
     var sent by remember { mutableStateOf(false) }
     var showConfirm by remember { mutableStateOf(false) }
+    var reportsReloadKey by remember { mutableStateOf(0) }
     val pagerState = androidx.compose.foundation.pager.rememberPagerState(initialPage = 0) { 2 }
     // 送信後の自動画面遷移と、ヘッダーの戻るボタンが競合してpopBackStack()が二重に呼ばれると、
     // 画面遷移アニメーション中にナビゲーションスタックが壊れて真っ白なまま操作不能になることがある。
@@ -159,7 +162,7 @@ fun ReportScreen(
     Scaffold(
         topBar = {
             CenterAlignedTopAppBar(
-                title = { HeaderTitle("不具合・要望の報告") },
+                title = { HeaderTitle("システム不具合・要望の報告") },
                 navigationIcon = {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         IconButton(onClick = { feedback(); goBack() }) {
@@ -172,6 +175,11 @@ fun ReportScreen(
                     HeaderUserLabel(userName)
                     NotificationBell()
                     HeaderOverflowMenu(showReport = false)
+                    if (pagerState.currentPage == 1) {
+                        IconButton(onClick = { feedback(); reportsReloadKey++ }) {
+                            Icon(Icons.Filled.Refresh, contentDescription = "更新", tint = MaterialTheme.colorScheme.onPrimary)
+                        }
+                    }
                     IconButton(onClick = { feedback(); onLogout() }) {
                         Icon(Icons.AutoMirrored.Filled.Logout, contentDescription = "ログアウト", tint = MaterialTheme.colorScheme.onPrimary)
                     }
@@ -203,7 +211,7 @@ fun ReportScreen(
                 modifier = Modifier.weight(1f).fillMaxWidth(),
             ) { page ->
                 if (page == 1) {
-                    ReportsOverviewTab(onOpenDetail = onOpenDetail)
+                    ReportsOverviewTab(reloadKey = reportsReloadKey, onOpenDetail = onOpenDetail)
                 } else {
         Column(
             modifier = Modifier
@@ -361,21 +369,20 @@ fun ReportScreen(
 }
 
 /**
- * 今上がっている不具合・要望の報告一覧（概要のみ、作業者全員が閲覧可）。
- * 既に他の人が報告済みかどうかをその場で確認できるようにするためのタブで、
- * 対応ステータスの変更などの管理操作は含まない（それらは報告一覧画面（管理者向け）で行う）。
+ * 今上がっているシステム不具合・要望の報告一覧（作業者全員がタップして詳細を開ける）。
+ * 対応ステータスの変更・削除はここには無く、詳細画面（[ReportDetailScreen]）側で
+ * システム管理者ロールの人にのみ表示する。
  */
 @Composable
-private fun ReportsOverviewTab(onOpenDetail: (reportId: Int) -> Unit) {
+private fun ReportsOverviewTab(reloadKey: Int, onOpenDetail: (reportId: Int) -> Unit) {
     val context = LocalContext.current
     val container = context.appContainer
     val feedback = rememberClickFeedback()
-    val canManageReports by container.settings.canManageReportsFlow.collectAsState(initial = false)
     var loading by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
     var reports by remember { mutableStateOf<List<jp.co.nse.worker.data.ReportDto>>(emptyList()) }
 
-    LaunchedEffect(Unit) {
+    LaunchedEffect(reloadKey) {
         loading = true
         error = null
         when (val result = container.managerRepository.reports()) {
@@ -406,12 +413,69 @@ private fun ReportsOverviewTab(onOpenDetail: (reportId: Int) -> Unit) {
             items(reports, key = { it.id }) { report ->
                 ReportRow(
                     report,
-                    onClick = if (canManageReports) {
-                        { feedback(); onOpenDetail(report.id) }
-                    } else null,
+                    onClick = { feedback(); onOpenDetail(report.id) },
                 )
             }
         }
     }
 }
 
+
+@Composable
+internal fun ReportRow(report: jp.co.nse.worker.data.ReportDto, onClick: (() -> Unit)? = null) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(12.dp))
+            .background(Color.White)
+            .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier)
+            .padding(16.dp),
+    ) {
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            StatusChip(report.status_label ?: report.status, statusColor(report.status))
+            CategoryChip(report.category_label ?: report.category)
+        }
+        Text(
+            report.title,
+            fontWeight = FontWeight.Bold,
+            fontSize = 15.sp,
+            modifier = Modifier.padding(top = 8.dp),
+        )
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(top = 6.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+        ) {
+            Text(report.reporter_name ?: "不明", color = Color(0xFF6B7280), fontSize = 12.sp)
+            Text(report.created_at ?: "", color = Color(0xFF9CA3AF), fontSize = 12.sp)
+        }
+    }
+}
+
+@Composable
+internal fun StatusChip(label: String, color: Color) {
+    Box(
+        modifier = Modifier.clip(RoundedCornerShape(6.dp)).background(color).padding(horizontal = 8.dp, vertical = 3.dp),
+    ) {
+        Text(label, color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+    }
+}
+
+@Composable
+internal fun CategoryChip(label: String) {
+    Box(
+        modifier = Modifier
+            .clip(RoundedCornerShape(6.dp))
+            .background(Color(0xFFE5E7EB))
+            .padding(horizontal = 8.dp, vertical = 3.dp),
+    ) {
+        Text(label, color = Color(0xFF374151), fontSize = 11.sp, fontWeight = FontWeight.Bold)
+    }
+}
+
+internal fun statusColor(status: String): Color = when (status) {
+    "open" -> Color(0xFFEF4444)
+    "in_progress" -> Color(0xFFF59E0B)
+    "resolved" -> Color(0xFF10B981)
+    "wontfix" -> Color(0xFF9CA3AF)
+    else -> Color(0xFF9CA3AF)
+}

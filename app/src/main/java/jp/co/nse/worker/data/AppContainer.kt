@@ -81,11 +81,8 @@ class AppContainer(context: Context) {
     /** スキャンデータ画面を開くコールバック。AppNavが起動時に設定する */
     var openScanData: (() -> Unit)? = null
 
-    /** 不具合・要望の報告画面を開くコールバック。AppNavが起動時に設定する */
+    /** システム不具合・要望の報告画面（報告一覧タブも含む）を開くコールバック。AppNavが起動時に設定する */
     var openReport: (() -> Unit)? = null
-
-    /** 届いた報告の一覧画面を開くコールバック。AppNavが起動時に設定する */
-    var openReportList: (() -> Unit)? = null
 
     /**
      * ヘッダーのロゴタップで作業一覧（ホーム）まで戻るコールバック。AppNavが起動時に設定する。

@@ -22,9 +22,8 @@ object WorkStatus {
         else -> status
     }
 
+    // 会社設定の休憩時間帯と重なる時間は中断操作の有無に関わらず作業実績から自動的に
+    // 差し引かれるようになったため、「休憩」を理由に選ぶ運用は不要になった
     /** 中断理由（App\Models\OrderProcess::$pauseReasons） */
-    val pauseReasons = listOf("電話対応", "トイレ", "休憩", "その他")
+    val pauseReasons = listOf("電話対応", "トイレ", "その他")
 }
-
-/** 「追加修正が必要」ボタンを表示してよい工程名（App\Http\Controllers\Api\OrderProcessController::requestRework 対応） */
-val reworkEligibleProcessNames = listOf("最終検査", "追加修正後検査")

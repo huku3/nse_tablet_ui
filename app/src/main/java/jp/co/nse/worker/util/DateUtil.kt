@@ -150,4 +150,18 @@ object DateUtil {
         }
         return cursor
     }
+
+    /**
+     * 客先納期までの営業日数（[businessDaysBetween]の結果）から、作業カード・受注カードの
+     * 緊急度を判定する。基本方針：納期超過～1営業日以内はCRITICAL（赤）、2～3営業日はWARNING（黄）。
+     * 作業一覧・受注一覧・割り当て画面のカードで共通して使う（色そのものは各画面で決める）。
+     */
+    fun deliveryUrgency(businessDaysRemaining: Int?): DeliveryUrgency = when {
+        businessDaysRemaining == null -> DeliveryUrgency.NONE
+        businessDaysRemaining <= 1 -> DeliveryUrgency.CRITICAL
+        businessDaysRemaining <= 3 -> DeliveryUrgency.WARNING
+        else -> DeliveryUrgency.NONE
+    }
 }
+
+enum class DeliveryUrgency { NONE, WARNING, CRITICAL }

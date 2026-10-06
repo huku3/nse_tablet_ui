@@ -3,14 +3,13 @@ package jp.co.nse.worker.ui.components
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.FactCheck
 import androidx.compose.material.icons.filled.BarChart
+import androidx.compose.material.icons.filled.Build
 import androidx.compose.material.icons.filled.Dashboard
 import androidx.compose.material.icons.filled.Feedback
 import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.Inventory2
 import androidx.compose.material.icons.filled.Menu
-import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.DropdownMenu
@@ -60,7 +59,6 @@ fun HeaderOverflowMenu(
     showOrderInquiry: Boolean = true,
     showScanData: Boolean = true,
     showReport: Boolean = true,
-    showReportList: Boolean = true,
     currentHomeTab: String? = null,
     onSwitchHomeTab: ((String) -> Unit)? = null,
 ) {
@@ -68,7 +66,6 @@ fun HeaderOverflowMenu(
     val feedback = rememberClickFeedback()
     var expanded by remember { mutableStateOf(false) }
     val canManageProcessAssignments by context.appContainer.settings.canManageProcessAssignmentsFlow.collectAsState(initial = false)
-    val canManageReports by context.appContainer.settings.canManageReportsFlow.collectAsState(initial = false)
     val canViewScanData by context.appContainer.settings.canViewScanDataFlow.collectAsState(initial = false)
     val canAssign by context.appContainer.settings.canAssignFlow.collectAsState(initial = false)
     val canViewOrders by context.appContainer.settings.canViewOrdersFlow.collectAsState(initial = false)
@@ -109,7 +106,7 @@ fun HeaderOverflowMenu(
             if (showSettings) {
                 DropdownMenuItem(
                     text = { Text("設定") },
-                    leadingIcon = { Icon(Icons.Filled.Palette, contentDescription = null) },
+                    leadingIcon = { Icon(Icons.Filled.Settings, contentDescription = null) },
                     onClick = { expanded = false; feedback(); context.appContainer.openSettings?.invoke() },
                 )
             }
@@ -123,7 +120,7 @@ fun HeaderOverflowMenu(
             if (showProcessAssignments && canManageProcessAssignments) {
                 DropdownMenuItem(
                     text = { Text("担当工程マスタ") },
-                    leadingIcon = { Icon(Icons.Filled.Settings, contentDescription = null) },
+                    leadingIcon = { Icon(Icons.Filled.Build, contentDescription = null) },
                     onClick = { expanded = false; feedback(); context.appContainer.openProcessAssignments?.invoke() },
                 )
             }
@@ -154,16 +151,9 @@ fun HeaderOverflowMenu(
             }
             if (showReport) {
                 DropdownMenuItem(
-                    text = { Text("不具合・要望の報告") },
+                    text = { Text("システム不具合・要望の報告") },
                     leadingIcon = { Icon(Icons.Filled.Feedback, contentDescription = null) },
                     onClick = { expanded = false; feedback(); context.appContainer.openReport?.invoke() },
-                )
-            }
-            if (showReportList && canManageReports) {
-                DropdownMenuItem(
-                    text = { Text("報告一覧") },
-                    leadingIcon = { Icon(Icons.AutoMirrored.Filled.FactCheck, contentDescription = null) },
-                    onClick = { expanded = false; feedback(); context.appContainer.openReportList?.invoke() },
                 )
             }
         }
