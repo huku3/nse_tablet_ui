@@ -479,6 +479,13 @@ data class ProcessDetailDto(
     val my_status: String? = null,
     val my_pause_reason: String? = null,
     val co_workers: List<ProcessWorkerDto> = emptyList(),
+    /**
+     * 作業の操作（開始・完了など）ができるか。担当者本人か管理者だけ true。
+     * 古いサーバーは返さないため既定は true（サーバー側でも担当者以外の操作は断る）
+     */
+    val can_operate: Boolean = true,
+    /** ログイン中の人がこの工程の担当者か（管理者が代わりに操作するときは false） */
+    val is_assignee: Boolean = true,
 )
 
 @Serializable

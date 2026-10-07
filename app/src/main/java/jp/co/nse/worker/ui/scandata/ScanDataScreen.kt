@@ -619,8 +619,9 @@ private class ScanDataPdfSource(file: File) {
     }
 }
 
+/** スキャンデータPDFのプレビュー（1ページずつ描画・ピンチで拡大・左右スワイプでページ送り）。工程管理チェックシートの取り込みでも使う */
 @Composable
-private fun ScanDataPreview(filename: String, reloadTick: Int) {
+internal fun ScanDataPreview(filename: String, reloadTick: Int = 0) {
     val context = LocalContext.current
     val container = context.appContainer
     var state by remember(filename, reloadTick) { mutableStateOf<PreviewState>(PreviewState.Loading) }

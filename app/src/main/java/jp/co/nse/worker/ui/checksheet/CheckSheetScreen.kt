@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -317,7 +318,11 @@ fun CheckSheetScreen(
     }
 }
 
-/** スキャンデータから、この受注の検査記録用図面として取り込むファイルを選ぶダイアログ */
+/**
+ * スキャンデータから、この受注の検査記録用図面として取り込むファイルを選ぶダイアログ。
+ * 選んだファイルはその場で図面を表示し、中身を確かめてから取り込めるようにする
+ * （横向きは左に一覧・右に図面、縦向きは上に一覧・下に図面）。
+ */
 @Composable
 private fun AttachScanDataDialog(
     loading: Boolean,
@@ -330,68 +335,146 @@ private fun AttachScanDataDialog(
     val feedback = rememberClickFeedback()
     var selected by remember { mutableStateOf<String?>(null) }
 
-    androidx.compose.material3.AlertDialog(
+    androidx.compose.ui.window.Dialog(
         onDismissRequest = { if (!busy) onDismiss() },
-        title = { Text("検査用図面を取り込む", fontWeight = FontWeight.ExtraBold, fontSize = 17.sp) },
-        text = {
-            Column {
+        properties = androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false),
+    ) {
+        androidx.compose.material3.Surface(
+            shape = RoundedCornerShape(20.dp),
+            color = Color.White,
+            modifier = Modifier.fillMaxWidth(0.94f).fillMaxHeight(0.9f),
+        ) {
+            Column(Modifier.padding(20.dp)) {
+                Text("検査用図面を取り込む", fontWeight = FontWeight.ExtraBold, fontSize = 17.sp)
                 Text(
-                    "スキャンデータから取り込むファイルを選んでください。",
+                    "スキャンデータから取り込むファイルを選んでください。選ぶと図面を確認できます。",
                     fontSize = 13.sp,
                     color = Gray500,
-                    modifier = Modifier.padding(bottom = 10.dp),
+                    modifier = Modifier.padding(top = 4.dp, bottom = 12.dp),
                 )
-                when {
-                    loading -> Box(Modifier.fillMaxWidth().padding(16.dp), contentAlignment = Alignment.Center) {
-                        CircularProgressIndicator(Modifier.size(28.dp))
+
+                androidx.compose.foundation.layout.BoxWithConstraints(Modifier.weight(1f).fillMaxWidth()) {
+                    val wide = maxWidth > 720.dp
+                    val list: @Composable (Modifier) -> Unit = { modifier ->
+                        ScanDataFileList(
+                            loading = loading,
+                            error = error,
+                            files = files,
+                            selected = selected,
+                            onSelect = { feedback(); selected = it },
+                            modifier = modifier,
+                        )
                     }
-                    error != null -> Text(error, color = MaterialTheme.colorScheme.error, fontSize = 13.sp)
-                    files.isEmpty() -> Text("スキャンデータがありません。", color = Gray500, fontSize = 13.sp)
-                    else -> LazyColumn(
-                        modifier = Modifier.fillMaxWidth().height(260.dp),
-                        verticalArrangement = Arrangement.spacedBy(6.dp),
-                    ) {
-                        items(files, key = { it.name }) { file ->
-                            val isSelected = selected == file.name
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .clip(RoundedCornerShape(8.dp))
-                                    .background(if (isSelected) MaterialTheme.colorScheme.primary.copy(alpha = 0.12f) else Color(0xFFF9FAFB))
-                                    .clickable { feedback(); selected = file.name }
-                                    .padding(10.dp),
-                            ) {
-                                Column {
-                                    Text(file.name, fontWeight = FontWeight.Bold, fontSize = 14.sp, maxLines = 1)
-                                    Text(
-                                        DateUtil.dateTimeFull(file.modified_at) ?: file.modified_at,
-                                        fontSize = 12.sp,
-                                        color = Gray500,
-                                    )
-                                }
+                    val preview: @Composable (Modifier) -> Unit = { modifier ->
+                        Box(
+                            modifier = modifier
+                                .clip(RoundedCornerShape(12.dp))
+                                .background(Color(0xFFF3F4F6)),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            val target = selected
+                            if (target == null) {
+                                Text(
+                                    if (wide) "左の一覧からファイルを選ぶと、ここに図面が表示されます" else "上の一覧からファイルを選ぶと、ここに図面が表示されます",
+                                    fontSize = 14.sp,
+                                    color = Gray500,
+                                    modifier = Modifier.padding(24.dp),
+                                )
+                            } else {
+                                jp.co.nse.worker.ui.scandata.ScanDataPreview(filename = target)
                             }
+                        }
+                    }
+                    if (wide) {
+                        Row(Modifier.fillMaxSize()) {
+                            list(Modifier.width(340.dp).fillMaxHeight())
+                            Spacer(Modifier.width(16.dp))
+                            preview(Modifier.weight(1f).fillMaxHeight())
+                        }
+                    } else {
+                        Column(Modifier.fillMaxSize()) {
+                            list(Modifier.fillMaxWidth().height(200.dp))
+                            Spacer(Modifier.height(12.dp))
+                            preview(Modifier.weight(1f).fillMaxWidth())
+                        }
+                    }
+                }
+
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(top = 16.dp),
+                    horizontalArrangement = Arrangement.End,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    androidx.compose.material3.TextButton(onClick = onDismiss, enabled = !busy) { Text("キャンセル") }
+                    Spacer(Modifier.width(8.dp))
+                    val target = selected
+                    Button(
+                        onClick = { target?.let { onConfirm(it) } },
+                        enabled = target != null && !busy,
+                    ) {
+                        if (busy) {
+                            CircularProgressIndicator(Modifier.size(18.dp), color = MaterialTheme.colorScheme.onPrimary, strokeWidth = 2.dp)
+                        } else {
+                            Text("取り込む", fontWeight = FontWeight.Bold)
                         }
                     }
                 }
             }
-        },
-        confirmButton = {
-            val target = selected
-            Button(
-                onClick = { target?.let { onConfirm(it) } },
-                enabled = target != null && !busy,
+        }
+    }
+}
+
+/** 取り込むスキャンデータの一覧（選んだファイルを強調する） */
+@Composable
+private fun ScanDataFileList(
+    loading: Boolean,
+    error: String?,
+    files: List<ScanDataFileDto>,
+    selected: String?,
+    onSelect: (String) -> Unit,
+    modifier: Modifier,
+) {
+    Box(modifier) {
+        when {
+            loading -> Box(Modifier.fillMaxWidth().padding(16.dp), contentAlignment = Alignment.Center) {
+                CircularProgressIndicator(Modifier.size(28.dp))
+            }
+            error != null -> Text(error, color = MaterialTheme.colorScheme.error, fontSize = 13.sp)
+            files.isEmpty() -> Text("スキャンデータがありません。", color = Gray500, fontSize = 13.sp)
+            else -> LazyColumn(
+                modifier = Modifier.fillMaxSize(),
+                verticalArrangement = Arrangement.spacedBy(6.dp),
             ) {
-                if (busy) {
-                    CircularProgressIndicator(Modifier.size(18.dp), color = MaterialTheme.colorScheme.onPrimary, strokeWidth = 2.dp)
-                } else {
-                    Text("取り込む", fontWeight = FontWeight.Bold)
+                items(files, key = { it.name }) { file ->
+                    val isSelected = selected == file.name
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(if (isSelected) MaterialTheme.colorScheme.primary.copy(alpha = 0.12f) else Color(0xFFF9FAFB))
+                            .then(
+                                if (isSelected) {
+                                    Modifier.border(2.dp, MaterialTheme.colorScheme.primary, RoundedCornerShape(8.dp))
+                                } else {
+                                    Modifier
+                                },
+                            )
+                            .clickable { onSelect(file.name) }
+                            .padding(12.dp),
+                    ) {
+                        Column {
+                            Text(file.name, fontWeight = FontWeight.Bold, fontSize = 14.sp, maxLines = 1)
+                            Text(
+                                DateUtil.dateTimeFull(file.modified_at) ?: file.modified_at,
+                                fontSize = 12.sp,
+                                color = Gray500,
+                            )
+                        }
+                    }
                 }
             }
-        },
-        dismissButton = {
-            androidx.compose.material3.TextButton(onClick = onDismiss, enabled = !busy) { Text("キャンセル") }
-        },
-    )
+        }
+    }
 }
 
 /** 取り込み済みの検査記録用図面をまとめて確認するビューア（画像はそのまま、PDFはページ画像化して表示） */

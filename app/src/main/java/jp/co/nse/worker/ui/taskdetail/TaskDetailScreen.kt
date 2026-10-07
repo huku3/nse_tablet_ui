@@ -380,9 +380,11 @@ private fun DetailContent(
         android.content.res.Configuration.ORIENTATION_LANDSCAPE
 
     val actionArea: @Composable () -> Unit = {
+        // 担当者本人か管理者でなければ、操作ボタンはすべて押せないようにする（閲覧のみ）
+        OperatorNotice(process = detail.process)
         ActionArea(
             detail = detail,
-            actionRunning = actionRunning,
+            actionRunning = actionRunning || !detail.process.can_operate,
             onStart = onStart,
             onComplete = onComplete,
             onResume = onResume,
@@ -696,6 +698,37 @@ private fun ColumnScope.DetailInfoCards(
                 Spacer(Modifier.height(4.dp))
                 Text(notes, color = Color(0xFF92400E), fontSize = 16.sp)
             }
+        }
+    }
+}
+
+/**
+ * 自分の担当ではない工程を開いたときの案内。
+ * 操作できない人（担当者以外）には「閲覧のみ」、管理者が代わりに操作するときはその旨を出す。
+ */
+@Composable
+private fun OperatorNotice(process: ProcessDetailDto) {
+    if (process.is_assignee) return
+    val worker = process.worker?.takeIf { it.isNotBlank() } ?: "未割当"
+    val (text, background, content) = if (process.can_operate) {
+        Triple("担当：${worker}さん　管理者として担当者の代わりに操作します", Color(0xFFEEF2FF), Color(0xFF3730A3))
+    } else {
+        Triple("担当：${worker}さん　あなたの担当ではないため、開始・完了などの操作はできません（閲覧のみ）", Color(0xFFF3F4F6), Color(0xFF374151))
+    }
+    Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier
+                .fillMaxWidth()
+                .widthIn(max = ActionAreaMaxWidth)
+                .padding(bottom = 12.dp)
+                .clip(RoundedCornerShape(12.dp))
+                .background(background)
+                .padding(horizontal = 14.dp, vertical = 12.dp),
+        ) {
+            Icon(Icons.Filled.Lock, contentDescription = null, tint = content, modifier = Modifier.size(18.dp))
+            Spacer(Modifier.width(8.dp))
+            Text(text, color = content, fontWeight = FontWeight.Bold, fontSize = 14.sp)
         }
     }
 }
